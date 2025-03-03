@@ -1,0 +1,8 @@
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+FractionalDiffEq = "c7492dd8-6170-483b-af64-cefb6c377d9a"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
+OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
