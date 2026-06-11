@@ -1,19 +1,34 @@
 clc
 
+% Step-size grid for runtime/accuracy benchmarking.
 H=[2^(-3) 2^(-4) 2^(-5)  2^(-6)  2^(-7)];% 2^(-8)];% setting step-size
 
+% Fractional order for this single-term nonlinear test problem.
 alpha = 0.5;
+
+% Right-hand side of the nonlinear FODE.
+% It is manufactured so that the analytic solution exa(t) is known.
 f_fun = @(t,y) (40320 / gamma(9 - 0.5) .* t .^ (8 - 0.5) - 3 .* gamma(5 + 0.5 / 2)/ gamma(5 - 0.5 / 2) .* t .^ (4 - 0.5 / 2) + 9/4 * gamma(0.5 + 1) +(3 / 2 .* t .^ (0.5 / 2) - t .^ 4) .^ 3 - y .^ (3 / 2));
+
+% Jacobian of f_fun with respect to y, used by implicit solvers.
 J_fun = @(t,y) -3/2.*y.^(1/2) ;
+
+% Time interval and initial value.
 t0 = 0;
 T = 1;
 y0 = 0.0;
+
+% Closed-form exact solution used for error evaluation.
 exa = @(t) t.^8 -3.*t.^(4+alpha/2)+ 9/4*t.^alpha;
+
+% Scalar wrapper required by nlfode_vec interface.
+% k is unused here because this is a single-state equation.
 function y=fun(t,x,k)
         y=40320/gamma(9-0.5)*t.^(8-0.5) -3*gamma(5+0.5/2)/gamma(5-0.5/2)*t.^(4-0.5/2)+9/4*gamma(0.5+1) +(3/2*t.^(0.5/2)-t.^4).^3 - x(1).^(3/2) ;
 end
 
-%benchmarking
+% Benchmark result matrices:
+% column 1 -> runtime in seconds, column 2 -> solution error norm.
 Bench1=zeros(length(H),2);
 Bench2=zeros(length(H),2);
 Bench3=zeros(length(H),2);
@@ -23,9 +38,11 @@ Bench6=zeros(length(H),2);
 Bench7=zeros(length(H),2);
 Bench8=zeros(length(H),2);
 
+% Sweep over all step sizes.
 for i=1:length(H)
     h=H(i);
-%computing the time
+
+% Runtime measurements using timeit for each solver.
 Bench1(i,1) = timeit(@() fde_pi1_ex(alpha,f_fun,t0,T,y0,h));
 Bench2(i,1) = timeit(@() fde_pi12_pc(alpha,f_fun,t0,T,y0,h));
 Bench3(i,1) = timeit(@() fde_pi1_im(alpha,f_fun,J_fun,t0,T,y0,h));
@@ -35,7 +52,7 @@ Bench6(i,1) = timeit(@() flmm2(alpha,f_fun,J_fun,t0,T,y0,h,[],1));
 Bench7(i,1) = timeit(@() flmm2(alpha,f_fun,J_fun,t0,T,y0,h,[],2));
 Bench8(i,1) = timeit(@() flmm2(alpha,f_fun,J_fun,t0,T,y0,h,[],3));
 
-%computing the error
+% Numerical solves at current h for error computation.
 [t1,y1]=fde_pi1_ex(alpha,f_fun,t0,T,y0,h);
 [t2,y2]=fde_pi12_pc(alpha,f_fun,t0,T,y0,h);
 [t3,y3]=fde_pi1_im(alpha,f_fun,J_fun,t0,T,y0,h);
@@ -45,7 +62,10 @@ Bench8(i,1) = timeit(@() flmm2(alpha,f_fun,J_fun,t0,T,y0,h,[],3));
 [t7,y7]=flmm2(alpha,f_fun,J_fun,t0,T,y0,h,[],2);
 [t8,y8]=flmm2(alpha,f_fun,J_fun,t0,T,y0,h,[],3);
 
+% Reference solution sampled on the grid returned by method 1.
 exact = exa(t1);
+
+% Error norms against exact solution.
 Bench1(i,2)=norm((y1-exact));
 Bench2(i,2)=norm((y2-exact));
 Bench3(i,2)=norm((y3-exact));
@@ -56,6 +76,8 @@ Bench7(i,2)=norm((y7-exact));
 Bench8(i,2)=norm((y8-exact));
 end
 %%
+% Export benchmark tables to CSV.
+% Each file stores two columns: [runtime, error].
 writematrix(Bench1,'Singleterm_MATLAB_PIEX.csv')
 writematrix(Bench2,'Singleterm_MATLAB_PECE.csv')
 writematrix(Bench3,'Singleterm_MATLAB_PIRect.csv')

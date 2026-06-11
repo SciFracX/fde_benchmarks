@@ -26,7 +26,7 @@ solvers_all = [
 
 ##### Julia #####
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_MTPECE.csv"))
-push!(wps_set, wps("FdeSolver.jl PECE", df[:,1], df[:,2]))
+push!(wps_set, wps("FractionalDiffEq.jl MTPECE", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_MTPIEX.csv"))
 push!(wps_set, wps("FractionalDiffEq.jl PECE", df[:,1], df[:,2]))
@@ -71,28 +71,39 @@ fig = begin
         fig = Figure(; size = (WIDTH, HEIGHT))
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||f(u^\ast)||_\infty}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
 
         idxs = sortperm(median.(getfield.(wps_set, :times)))
 
+        # find MATLAB MTPIEX
+
+        piex_idx = findfirst(i ->
+            occursin("PIEX", wps_set[i].name) &&
+            !(occursin("FractionalDiffEq", wps_set[i].name)),
+            eachindex(wps_set)
+        )
+        # Put it last
+
+        idxs = vcat(filter(!=(piex_idx), idxs), piex_idx)
+
         ls, scs = [], []
 
         for (i, (wp, solver)) in enumerate(zip(wps_set[idxs], solvers_all[idxs]))
             (; name, times, errors) = wp
             #errors = [err.l∞ for err in errors]
-            l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
+            l = CairoMakie.lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
                 linewidth = 5, color = colors[i])
-            sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
+            sc = CairoMakie.scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
                 color = colors[i])
             push!(ls, l)
             push!(scs, sc)
         end
 
-        xlims!(ax; high=10^(1.2))
-        ylims!(ax; low=10^(-3), high=10^(1.8))
+        CairoMakie.xlims!(ax; high=10^(1.2))
+        CairoMakie.ylims!(ax; low=10^(-3), high=10^(1.8))
 
         axislegend(ax, [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in solvers_all[idxs]], "FODE Solvers";

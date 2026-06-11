@@ -20,7 +20,7 @@ solvers_all = [
     (; pkg = :MATLAB,                           name = "MATLAB PIRect", )
     (; pkg = :MATLAB,                           name = "MATLAB PITrap", )
     (; pkg = :MATLAB,                           name = "MATLAB FOTF", )
-    (; pkg = :Python,                           name = "PyCaputo PECE", )
+    (; pkg = :Python,                           name = "pycaputo PECE", )
 ];
 
 ##### Julia #####
@@ -51,7 +51,7 @@ push!(wps_set, wps("MATLAB FOTF", df[:,1], df[:,2]))
 
 ##### Python #####
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/PYCAPUTO_PECE.csv"))
-push!(wps_set, wps("PyCaputo PECE", df[:,2], df[:,3]))
+push!(wps_set, wps("pycaputo PECE", df[:,2], df[:,3]))
 
 fig = begin
     LINESTYLES = Dict(:FdeSolvers => :dash, :FractionalDiffEq => :solid, :MATLAB => :dot, :Python => :dashdot)

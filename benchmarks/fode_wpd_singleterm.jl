@@ -28,7 +28,7 @@ solvers_all = [
     (; pkg = :MATLAB,                           name = "MATLAB BDF", )
     (; pkg = :MATLAB,                           name = "MATLAB Trapezoid", )
     (; pkg = :MATLAB,                           name = "MATLAB NewtonGregory", )
-    (; pkg = :Python,                           name = "PyCaputo PECE", )
+    (; pkg = :Python,                           name = "pycaputo PECE", )
 ];
 
 ##### Julia #####
@@ -51,7 +51,7 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_S
 push!(wps_set1, wps("FractionalDiffEq.jl BDF", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_Trapzoid.csv"))
-push!(wps_set1, wps("FractionalDiffEq.jl Trapzoid", df[:,1], df[:,2]))
+push!(wps_set1, wps("FractionalDiffEq.jl Trapezoid", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_NewtonGregory.csv"))
 push!(wps_set1, wps("FractionalDiffEq.jl NewtonGregory", df[:,1], df[:,2]))
@@ -76,7 +76,7 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_S
 push!(wps_set1, wps("MATLAB BDF", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Singleterm_MATLAB_Trapzoid.csv"))
-push!(wps_set1, wps("MATLAB Trapzoid", df[:,1], df[:,2]))
+push!(wps_set1, wps("MATLAB Trapezoid", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Singleterm_MATLAB_NewtonGregory.csv"))
 push!(wps_set1, wps("MATLAB NewtonGregory", df[:,1], df[:,2]))
@@ -113,7 +113,7 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Single_F
 push!(wps_set2, wps("FractionalDiffEq.jl BDF", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Single_FractionalDiffEq_Trapzoid.csv"))
-push!(wps_set2, wps("FractionalDiffEq.jl Trapzoid", df[:,1], df[:,2]))
+push!(wps_set2, wps("FractionalDiffEq.jl Trapezoid", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Single_FractionalDiffEq_NewtonGregory.csv"))
 push!(wps_set2, wps("FractionalDiffEq.jl NewtonGregory", df[:,1], df[:,2]))
@@ -138,7 +138,7 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Singlete
 push!(wps_set2, wps("MATLAB BDF", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Singleterm_MATLAB_Trapzoid.csv"))
-push!(wps_set2, wps("MATLAB Trapzoid", df[:,1], df[:,2]))
+push!(wps_set2, wps("MATLAB Trapezoid", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Singleterm_MATLAB_NewtonGregory.csv"))
 push!(wps_set2, wps("MATLAB NewtonGregory", df[:,1], df[:,2]))
@@ -165,7 +165,7 @@ fig = begin
         fig = Figure(; size = (WIDTH, HEIGHT))
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||^2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
@@ -199,7 +199,7 @@ fig = begin
         ############ bottom plot ############
         ax = Axis(fig[3, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||^2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)

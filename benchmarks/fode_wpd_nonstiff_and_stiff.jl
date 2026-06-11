@@ -20,7 +20,7 @@ solvers_all_nonstiff = [
     (; pkg = :MATLAB,                           name = "MATLAB PIRect", )
     (; pkg = :MATLAB,                           name = "MATLAB PITrap", )
     (; pkg = :MATLAB,                           name = "MATLAB FOTF", )
-    (; pkg = :Python,                           name = "PyCaputo PECE", )
+    (; pkg = :Python,                           name = "pycaputo PECE", )
 ];
 
 ##### Julia #####
@@ -65,12 +65,12 @@ wps_set2 = Any[]
 solvers_all_stiff = [   
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl BDF", )
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl NewtonGregory", )
-    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl Trapzoid", )
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl Trapezoid", )
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl PITrap", )
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl PIRect", )
     (; pkg = :MATLAB,                           name = "MATLAB BDF", )
     (; pkg = :MATLAB,                           name = "MATLAB NewtonGregory", )
-    (; pkg = :MATLAB,                           name = "MATLAB Trapzoid", )
+    (; pkg = :MATLAB,                           name = "MATLAB Trapezoid", )
     (; pkg = :MATLAB,                           name = "MATLAB PITrap", )
     (; pkg = :MATLAB,                           name = "MATLAB PIRect", )
 ];
@@ -83,7 +83,7 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_Fr
 push!(wps_set2, wps("FractionalDiffEq.jl NewtonGregory", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_FractionalDiffEq_Trapzoid.csv"))
-push!(wps_set2, wps("FractionalDiffEq.jl Trapzoid", df[:,1], df[:,2]))
+push!(wps_set2, wps("FractionalDiffEq.jl Trapezoid", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_FractionalDiffEq_PITrap.csv"))
 push!(wps_set2, wps("FractionalDiffEq.jl PITrap", df[:,1], df[:,2]))
@@ -99,7 +99,7 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_MA
 push!(wps_set2, wps("MATLAB NewtonGregory", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_MATLAB_Trapzoid.csv"))
-push!(wps_set2, wps("MATLAB Trapzoid", df[:,1], df[:,2]))
+push!(wps_set2, wps("MATLAB Trapezoid", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_MATLAB_PITrap.csv"))
 push!(wps_set2, wps("MATLAB PITrap", df[:,1], df[:,2]))
@@ -125,7 +125,7 @@ fig = begin
         fig = Figure(; size = (WIDTH, HEIGHT))
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||^2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
@@ -139,14 +139,14 @@ fig = begin
             #errors = [err.l∞ for err in errors]
             l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
                 linewidth = 5, color = colors_nonstiff[i])
-            sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
+            sc = CairoMakie.scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
                 color = colors_nonstiff[i])
             push!(ls, l)
             push!(scs, sc)
         end
 
-        xlims!(ax; high=1e1)
-        ylims!(ax; low=10^(-3.7), high=10^(-1.5))
+        CairoMakie.xlims!(ax; high=1e1)
+        CairoMakie.ylims!(ax; low=10^(-3.7), high=10^(-1.5))
 
         Legend(fig[1,2], [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in solvers_all_nonstiff[idxs]], "FODE Solvers";
@@ -159,7 +159,7 @@ fig = begin
         ############ bottom plot ############
         ax = Axis(fig[3, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||^2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
@@ -172,14 +172,14 @@ fig = begin
             (; name, times, errors) = wp
             l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
                 linewidth = 5, color = colors_stiff[i])
-            sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
+            sc = CairoMakie.scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
                 color = colors_stiff[i])
             push!(ls, l)
             push!(scs, sc)
         end
 
-        xlims!(ax; high=10^(-0.5))
-        ylims!(ax; low=10^(-4.4), high=10^(-2.3))
+        CairoMakie.xlims!(ax; high=10^(-0.5))
+        CairoMakie.ylims!(ax; low=10^(-4.4), high=10^(-2.3))
 
         Legend(fig[3,2], [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in solvers_all_stiff[idxs]], "FODE Solvers";

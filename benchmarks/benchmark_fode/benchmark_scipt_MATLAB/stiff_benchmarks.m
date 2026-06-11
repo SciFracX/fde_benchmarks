@@ -1,27 +1,52 @@
 clc
 
+% Step-size grid used in the convergence and performance sweep.
 H=[2^(-3) 2^(-4) 2^(-5)  2^(-6)  2^(-7)];% 2^(-8)];% setting step-size
 
+% Fractional orders for the 3-component system.
 alpha = [0.5, 0.5, 0.5];
+
+% Scalar order used in some single-order formulations.
 beta = 0.5;
+
+% Coefficients of the manufactured polynomial-in-time exact solution.
 a1 = 0.5; a2 = 0.8; a3 = 1; a4 = 1; a5 = 1; a6 = 1;
+
+% Exponents used by the manufactured exact solution.
 sigma = [beta, 2*beta, 1+beta, 5*beta, 2, 2+beta];
+
+% Linear stiff dynamics matrix blocks.
 A = [-10000 0 1;
      -0.05 -0.08 -0.2;
      1 0 -1];
 B = [-0.6 0 0.2;
      -0.1 -0.2 0;
      0 -0.5 -0.8];
+
+% Initial condition at t = 0.
 u0 = [1; 1; 1];
+
+% Gamma-ratio helper appearing in Caputo derivative of power functions.
 big_gamma = @(k) gamma(sigma(k)+1)/gamma(sigma(k)-beta+1);
+
+% Manufactured forcing term g(t) so the selected exact solution is known.
 g = @(t) [a1*big_gamma(1)*t^(sigma(1)-beta) + a2*big_gamma(2)*t^(sigma(2)-beta); a3*big_gamma(3)*t^(sigma(3)-beta) + a4*big_gamma(4)*t^(sigma(4)-beta); a5*big_gamma(5)*t^(sigma(5)-beta) + a6*big_gamma(6)*t^(sigma(6)-beta)] - (A + B) * [a1*t^sigma(1) + a2*t^sigma(2) + u0(1); a3*t^sigma(3) + a4*t^sigma(4) + u0(2); a5*t^sigma(5) + a6*t^sigma(6) + u0(3)];
+
+% System right-hand side used by most benchmarked solvers.
 f_fun = @(t, y) A*y + B*y + g(t);
+
+% Constant Jacobian for implicit methods that support user-supplied J.
 J_fun = @(t, y) A + B;
+
+% Component-wise wrapper for nlfode_vec interface.
+% k selects which scalar equation to evaluate.
 function y=fun(t,x,k)
 beta = 0.5;
 u0 = [1; 1; 1];
 sigma = [beta, 2*beta, 1+beta, 5*beta, 2, 2+beta];
 big_gamma = @(k) gamma(sigma(k)+1)/gamma(sigma(k)-beta+1);
+
+% Linear stiff dynamics matrix blocks.
 A = [-10000 0 1;
      -0.05 -0.08 -0.2;
      1 0 -1];
@@ -29,21 +54,29 @@ B = [-0.6 0 0.2;
      -0.1 -0.2 0;
      0 -0.5 -0.8];
 a1 = 0.5; a2 = 0.8; a3 = 1; a4 = 1; a5 = 1; a6 = 1;
+
+% Evaluate the k-th component of the system's right-hand side.
 switch k
     case 1
+        % First component equation.
         y=A(1,:)*x+B(1, :)*x + a1*big_gamma(1)*t^(sigma(1)-beta) + a2*big_gamma(2)*t^(sigma(2)-beta)- (A(1,:) + B(1,:))*[a1*t^sigma(1) + a2*t^sigma(2) + u0(1); a3*t^sigma(3) + a4*t^sigma(4) + u0(2); a5*t^sigma(5) + a6*t^sigma(6) + u0(3)];
     case 2
+        % Second component equation.
         y=A(2,:)*x+B(2, :)*x + a3*big_gamma(3)*t^(sigma(3)-beta) + a4*big_gamma(4)*t^(sigma(4)-beta)- (A(2,:) + B(2,:))*[a1*t^sigma(1) + a2*t^sigma(2) + u0(1); a3*t^sigma(3) + a4*t^sigma(4) + u0(2); a5*t^sigma(5) + a6*t^sigma(6) + u0(3)];
     case 3
+        % Third component equation.
         y=A(3,:)*x+B(3, :)*x + a5*t^sigma(5) + a6*t^sigma(6) + u0(3) - (A(3,:) + B(3,:))*[a1*t^sigma(1) + a2*t^sigma(2) + u0(1); a3*t^sigma(3) + a4*t^sigma(4) + u0(2); a5*t^sigma(5) + a6*t^sigma(6) + u0(3)];
 end
 end
+
+% Time interval.
 t0 = 0;
 T = 1;
 
+% Analytic solution used to compute terminal errors.
 exa = @(t) [a1*t.^sigma(1) + a2*t.^sigma(2) + u0(1); a3*t.^sigma(3) + a4*t.^sigma(4) + u0(2); a5*t.^sigma(5) + a6*t.^sigma(6) + u0(3)];
 
-%benchmarking
+% Benchmark result arrays: column 1 = runtime (seconds), column 2 = error.
 Bench1=zeros(length(H),2);
 Bench2=zeros(length(H),2);
 Bench3=zeros(length(H),2);
@@ -54,9 +87,11 @@ Bench7=zeros(length(H),2);
 Bench8=zeros(length(H),2);
 Bench9=zeros(length(H),2);
 
+% Sweep all step sizes and benchmark each solver.
 for i=1:length(H)
     h=H(i);
-%computing the time
+
+% Runtime measurement using timeit for fair timing.
 Bench1(i,1) = timeit(@() fde_pi1_ex(alpha,f_fun,t0,T,u0,h));
 Bench2(i,1) = timeit(@() fde_pi12_pc(alpha,f_fun,t0,T,u0,h));
 Bench3(i,1) = timeit(@() fde_pi1_im(alpha,f_fun,J_fun,t0,T,u0,h));
@@ -66,7 +101,8 @@ Bench6(i,1) = timeit(@() flmm2(beta,f_fun,J_fun,t0,T,u0,h,[],2));
 Bench7(i,1) = timeit(@() flmm2(beta,f_fun,J_fun,t0,T,u0,h,[],3));
 Bench8(i,1) = timeit(@() nlfode_vec(@fun,alpha,u0,h,T));
 Bench9(i,1) = timeit(@() pepc_nlfode(f_fun,beta,u0,h,T,1e-6,2));
-%computing the error
+
+% Solve once with each method at the current step size.
 [t1,y1]=fde_pi1_ex(alpha,f_fun,t0,T,u0,h);
 [t2,y2]=fde_pi12_pc(alpha,f_fun,t0,T,u0,h);
 [t3,y3]=fde_pi1_im(alpha,f_fun,J_fun,t0,T,u0,h);
@@ -77,7 +113,10 @@ Bench9(i,1) = timeit(@() pepc_nlfode(f_fun,beta,u0,h,T,1e-6,2));
 [y8,t8]=nlfode_vec(@fun,alpha,u0,h,T);
 [y9,t9]=pepc_nlfode(f_fun,beta,u0,h,T,1e-6,2);
 
+% Reference solution sampled at t-grid returned by method 1.
 exact = exa(t1);
+
+% Terminal/global error proxies (vector norms versus analytic trajectory).
 Bench1(i,2)=norm((y1-exact));
 Bench2(i,2)=norm((y2-exact));
 Bench3(i,2)=norm((y3-exact));
@@ -89,6 +128,8 @@ Bench8(i,2)=norm((y8'-exact));
 Bench9(i,2)=norm((y9'-exact));
 end
 %%
+% Export per-solver benchmark tables.
+% Each CSV stores [runtime, error] per step size in H.
 writematrix(Bench1,'Stiff_MATLAB_PIEX.csv')
 writematrix(Bench2,'Stiff_MATLAB_PECE.csv')
 writematrix(Bench3,'Stiff_MATLAB_PIRect.csv')
@@ -96,6 +137,6 @@ writematrix(Bench4,'Stiff_MATLAB_PITrap.csv')
 writematrix(Bench5,'Stiff_MATLAB_Trapzoid.csv')
 writematrix(Bench6,'Stiff_MATLAB_NewtonGregory.csv')
 writematrix(Bench7,'Stiff_MATLAB_BDF.csv')
-% FOTF solver failed on stiff nonlinear FODE
+% FOTF solver can be unstable/fail for this stiff nonlinear setting.
 writematrix(Bench8,'Stiff_MATLAB_NLFODE_VEC.csv')
 writematrix(Bench9,'Stiff_MATLAB_PEPC_NLFODE.csv')

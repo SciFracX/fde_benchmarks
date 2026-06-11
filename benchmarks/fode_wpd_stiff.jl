@@ -32,7 +32,7 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_Fr
 push!(wps_set, wps("FractionalDiffEq.jl NewtonGregory", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_FractionalDiffEq_Trapzoid.csv"))
-push!(wps_set, wps("FractionalDiffEq.jl Trapzoid", df[:,1], df[:,2]))
+push!(wps_set, wps("FractionalDiffEq.jl Trapezoid", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_FractionalDiffEq_PITrap.csv"))
 push!(wps_set, wps("FractionalDiffEq.jl PITrap", df[:,1], df[:,2]))

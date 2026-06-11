@@ -40,7 +40,7 @@ for n in range(3, 7)
     println("n: $n")# to print out the current step of runing
     h = 2.0^-n #stepsize of computting
         #computing the time
-    t1= @benchmark solve($(prob), $(FdeSolverPECE()), dt = $(h)) seconds=1
+    t1= @benchmark solve($(prob), $(FdeSolverPECE()), dt = $(h)); seconds=1
     #t2= @benchmark FDEsolver(F, $(tSpan), $(y0), $(β), $(par), JF = JF, h=$(h)) seconds=1
     t3= @benchmark solve($(prob), $(PECE()), dt = $(h)); seconds=1
     t4 = @benchmark solve($(prob), $(PITrap()), dt = $(h)); seconds=1
