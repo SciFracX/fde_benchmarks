@@ -3,14 +3,20 @@ using Statistics
 using CSV
 using CairoMakie
 
+# Container for one solver's benchmark trajectory.
+# `times` and `errors` are extracted from CSV result files.
 struct wps
     name
     times
     errors
 end
+
+# Storage for all solver curves included in this figure.
 wps_set = Any[]
 
 
+# Solver metadata used for legend text and style grouping.
+# Keep this ordering aligned with the push! sequence below.
 solvers_all = [
     (; pkg = :FdeSolvers,                       name = "FdeSolver.jl PECE", )    
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl PECE", ) 
@@ -32,6 +38,7 @@ solvers_all = [
 ];
 
 ##### Julia #####
+# Load Julia linear single-term benchmark outputs (time/error columns).
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FdeSolver_PECE.csv"))
 push!(wps_set, wps("FdeSolver.jl PECE", df[:,1], df[:,2]))
 
@@ -57,6 +64,7 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_S
 push!(wps_set, wps("FractionalDiffEq.jl NewtonGregory", df[:,1], df[:,2]))
 
 ##### MATLAB #####
+# Load MATLAB linear single-term benchmark outputs.
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Singleterm_MATLAB_PIEX.csv"))
 push!(wps_set, wps("MATLAB PIEX", df[:,1], df[:,2]))
 
@@ -82,22 +90,29 @@ df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_S
 push!(wps_set, wps("MATLAB NewtonGregory", df[:,1], df[:,2]))
 
 ##### Python #####
+# Python CSV includes an index column first, so use columns 2 and 3.
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Singleterm_PYCAPUTO_PECE.csv"))
 push!(wps_set, wps("PyCaputo PECE", df[:,2], df[:,3]))
 
+# Build one log-log performance profile panel for all solvers.
 fig = begin
+    # Map package family to line style for visual grouping.
     LINESTYLES = Dict(:FdeSolvers => :dash, :FractionalDiffEq => :solid, :MATLAB => :dot, :Python => :dashdot)
     ASPECT_RATIO = 0.7
     WIDTH = 1200
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
+    # Assign a distinct categorical color to each solver curve.
     colors = cgrad(:seaborn_bright, length(solvers_all); categorical = true)
+
+    # Covary markers to improve readability in dense overlays.
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
     with_theme(plot_theme) do 
         fig = Figure(; size = (WIDTH, HEIGHT))
+        # Axis: runtime vs error in log-log scale.
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
             xlabel = L"Error: $\mathbf{||u-u^\ast||^2}$",
@@ -105,10 +120,12 @@ fig = begin
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
 
+        # Sort by median runtime to present methods from faster to slower.
         idxs = sortperm(median.(getfield.(wps_set, :times)))
 
         ls, scs = [], []
 
+        # Plot each method with both a line and marker series.
         for (i, (wp, solver)) in enumerate(zip(wps_set[idxs], solvers_all[idxs]))
             (; name, times, errors) = wp
             #errors = [err.l∞ for err in errors]
@@ -120,9 +137,11 @@ fig = begin
             push!(scs, sc)
         end
 
+        # Axis limits tuned to this benchmark's dynamic range.
         CairoMakie.xlims!(ax; high=1e0)
         CairoMakie.ylims!(ax; low=10^(-4.2), high=10^(-1.2))
 
+        # Legend pairs line and scatter handles for each solver.
         Legend(fig[1,2], [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in solvers_all[idxs]], "FODE Solvers";
             framevisible=true, framewidth = STROKEWIDTH, position = :rb,
@@ -134,4 +153,5 @@ fig = begin
     end
 end
 
+# Save figure for manuscript/report usage.
 save("singleterm_fode_benchmarks.svg", fig)
