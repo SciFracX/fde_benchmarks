@@ -22,6 +22,7 @@ solvers_all = [
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl MTPIEX", )
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl MTPITrap", )
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl MTPIRect", )
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl IMEX", )
     (; pkg = :MATLAB,                           name = "MATLAB MTPECE", )
     (; pkg = :MATLAB,                           name = "MATLAB MTPIEX", )
     (; pkg = :MATLAB,                           name = "MATLAB MTPITrap", )
@@ -43,6 +44,9 @@ push!(wps_set, wps("FractionalDiffEq.jl PITrap", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_MTPIRect.csv"))
 push!(wps_set, wps("FractionalDiffEq.jl PIRect", df[:,1], df[:,2]))
+
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_IMEX.csv"))
+push!(wps_set, wps("FractionalDiffEq.jl IMEX", df[:,1], df[:,2]))
 
 ##### MATLAB #####
 # Load MATLAB multi-term benchmark outputs.
@@ -68,9 +72,11 @@ push!(wps_set, wps("Matrix Discretization", df[:,1], df[:,2]))
 fig = begin
     # Package family -> line style mapping.
     LINESTYLES = Dict(:FdeSolvers => :dash, :FractionalDiffEq => :solid, :MATLAB => :dot, :Python => :dashdot)
+    PKG_ORDER = Dict(:FractionalDiffEq => 1, :MATLAB => 2, :FdeSolvers => 3, :Python => 4)
+    legend_order(solvers) = sortperm(eachindex(solvers); by = i -> (get(PKG_ORDER, solvers[i].pkg, typemax(Int)), i))
     ASPECT_RATIO = 0.7
-    WIDTH = 1200
-    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    WIDTH = 1500
+    HEIGHT = 840
     STROKEWIDTH = 2.5
 
     # Categorical palette gives each solver a distinct color.
@@ -85,7 +91,7 @@ fig = begin
         # Axis uses log-log scaling to emphasize efficiency/accuracy trade-offs.
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_\infty}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
@@ -125,10 +131,25 @@ fig = begin
         CairoMakie.ylims!(ax; low=10^(-3), high=10^(1.8))
 
         # Legend combines corresponding line and marker entries per solver.
-        axislegend(ax, [[l, sc] for (l, sc) in zip(ls, scs)],
-            [solver.name for solver in solvers_all[idxs]], "FODE Solvers";
-            framevisible=true, framewidth = STROKEWIDTH, position = :rb,
-            titlesize = 20, labelsize = 16, patchsize = (40.0f0, 20.0f0))
+        plotted_solvers = solvers_all[idxs]
+        legend_idxs = legend_order(plotted_solvers)
+        #axislegend(ax, [[ls[i], scs[i]] for i in legend_idxs],
+        #    [plotted_solvers[i].name for i in legend_idxs], "FODE Solvers";
+        #    framevisible=true, framewidth = STROKEWIDTH, position = :rb,
+        #    titlesize = 20, labelsize = 16, patchsize = (40.0f0, 20.0f0))
+
+    Legend(
+        fig[1, 2],
+        [[ls[i], scs[i]] for i in legend_idxs],
+        [plotted_solvers[i].name for i in legend_idxs],
+        "FODE Solvers";
+        framevisible = true,
+        framewidth = STROKEWIDTH,
+        titlesize = 20,
+        labelsize = 16,
+        patchsize = (40.0f0, 20.0f0),
+        valign = :center
+    )
 
         fig[0, :] = Label(fig, "Linear Multi-terms FODE Benchmark",
             fontsize = 24, tellwidth = false, font = :bold)

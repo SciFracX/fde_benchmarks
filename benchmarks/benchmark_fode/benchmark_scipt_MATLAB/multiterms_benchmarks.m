@@ -1,7 +1,7 @@
 clc
 
 % Step-size grid used for runtime and error benchmarking.
-H=[2^(-3) 2^(-4) 2^(-5)  2^(-6)  2^(-7)];% 2^(-8)];% setting step-size
+H=[2^(-3) 2^(-4) 2^(-5)  2^(-6)  2^(-7) 2^(-8)];% setting step-size
 
 % Initial data for the multi-term equation.
 % For this problem, y0 stores initial conditions needed by different orders.
@@ -61,17 +61,17 @@ y5 = fode_caputo9(lambda,alpha,b,nb,y0,u,t_series,2);
 exact = exa(t1);
 
 % Error norms against the analytic solution.
-Bench1(i,2)=norm((y1-exact));
-Bench2(i,2)=norm((y2-exact));
-Bench3(i,2)=norm((y3-exact));
-Bench4(i,2)=norm((y4-exact));
-Bench5(i,2)=norm((y5'-exact));
+Bench1(i,2)=norm((y1-exact), Inf);
+Bench2(i,2)=norm((y2-exact), Inf);
+Bench3(i,2)=norm((y3-exact), Inf);
+Bench4(i,2)=norm((y4-exact), Inf);
+Bench5(i,2)=norm((y5'-exact), Inf);
 end
 %%
 % Export benchmark tables to CSV.
 % Each CSV stores [runtime, error] for all step sizes in H.
-writematrix(Bench1,'MATLAB_MTPIEX.csv')
-writematrix(Bench2,'MATLAB_MTPITrap.csv')
-writematrix(Bench3,'MATLAB_MTPIRect.csv')
-writematrix(Bench4,'MATLAB_MTPECE.csv')
-writematrix(Bench5,'MATLAB_MTCAPUTO9.csv')
+writetable(array2table(Bench1, 'VariableNames', {'time','error'}), 'MATLAB_MTPIEX.csv');
+writetable(array2table(Bench2, 'VariableNames', {'time','error'}), 'MATLAB_MTPITrap.csv');
+writetable(array2table(Bench3, 'VariableNames', {'time','error'}), 'MATLAB_MTPIRect.csv');
+writetable(array2table(Bench4, 'VariableNames', {'time','error'}), 'MATLAB_MTPECE.csv');
+writetable(array2table(Bench5, 'VariableNames', {'time','error'}), 'MATLAB_MTCAPUTO9.csv');

@@ -34,9 +34,10 @@ prob = FODEProblem(fun, order, u0, tspan)
 E1 = Float64[];T1 = Float64[];E2 = Float64[];T2 = Float64[]
 E3 = Float64[];T3 = Float64[];E4 = Float64[];T4 = Float64[];
 E5 = Float64[];T5 = Float64[];E6 = Float64[];T6 = Float64[];
+E7 = Float64[];T7 = Float64[];E8 = Float64[];T8 = Float64[];
 h = Float64[]
 
-for n in range(3, 7)
+for n in range(3, 8)
     println("n: $n")# to print out the current step of runing
     h = 2.0^-n #stepsize of computting
         #computing the time
@@ -45,6 +46,9 @@ for n in range(3, 7)
     t3= @benchmark solve($(prob), $(PECE()), dt = $(h)); seconds=1
     t4 = @benchmark solve($(prob), $(PITrap()), dt = $(h)); seconds=1
     t5 = @benchmark solve($(prob), $(PIRect()), dt = $(h)); seconds=1
+    t6 = @benchmark solve($(prob), $(KernelCompression()), dt = $(h)); seconds=1
+    t7 = @benchmark solve($(prob), $(SoE()), dt = $(h)); seconds=1
+    
 
     # convert from nano seconds to seconds
     push!(T1, mean(t1).time / 10^9)
@@ -52,6 +56,8 @@ for n in range(3, 7)
     push!(T3, mean(t3).time / 10^9)
     push!(T4, mean(t4).time / 10^9)
     push!(T5, mean(t5).time / 10^9)
+    push!(T6, mean(t6).time / 10^9)
+    push!(T7, mean(t7).time / 10^9)
 
     #computing the error
     sol1 = solve(prob, FdeSolverPECE(), dt = h);
@@ -59,17 +65,25 @@ for n in range(3, 7)
     sol3 =  solve(prob, PECE(), dt = h);
     sol4 =  solve(prob, PITrap(), dt = h);
     sol5 =  solve(prob, PIRect(), dt = h);
+    sol6 =  solve(prob, KernelCompression(), dt = h);
+    sol7 =  solve(prob, SoE(), dt = h);
 
-    ery1=sol1.errors[:final]
-    #ery2=sol2.errors[:final]
-    ery3=sol3.errors[:final]
-    ery4=sol4.errors[:final]
-    ery5=sol5.errors[:final]
+    exa = analytical_solution.(nothing, nothing, sol4.t)
+
+    ery1=sol1.errors[:l∞]
+    #ery2=sol2.errors[:linf]
+    ery3=sol3.errors[:l∞]
+    ery4=sol4.errors[:l∞]
+    ery5=sol5.errors[:l∞]
+    ery6=sol6.errors[:l∞]
+    ery7=sol7.errors[:l∞]
 
     push!(E1, ery1)
     push!(E3, ery3)
     push!(E4, ery4)
     push!(E5, ery5)
+    push!(E6, ery6)
+    push!(E7, ery7)
 end
 
 #save data
@@ -77,4 +91,6 @@ CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/FdeSolver_PECE.csv",  
 CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_PECE.csv",  DataFrame(time = eval(Symbol("T3")), error = eval(Symbol("E3"))))
 CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_PITrap.csv",  DataFrame(time = eval(Symbol("T4")), error = eval(Symbol("E4"))))
 CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_PIRect.csv",  DataFrame(time = eval(Symbol("T5")), error = eval(Symbol("E5"))))
+CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_KernelCompression.csv",  DataFrame(time = eval(Symbol("T6")), error = eval(Symbol("E6"))))
+CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_SoE.csv",  DataFrame(time = eval(Symbol("T7")), error = eval(Symbol("E7"))))
 

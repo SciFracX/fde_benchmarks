@@ -1,7 +1,7 @@
 clc
 
 % Step-size grid for runtime/accuracy benchmarking.
-H=[2^(-3) 2^(-4) 2^(-5)  2^(-6)  2^(-7)];% 2^(-8)];% setting step-size
+H=[2^(-3) 2^(-4) 2^(-5)  2^(-6)  2^(-7) 2^(-8)];% setting step-size
 
 % Fractional order for this linear single-term test problem.
 alpha = 0.8;
@@ -20,11 +20,10 @@ y0 = 1.0;
 % Exact solution using Mittag-Leffler function.
 exa = @(t) ml(-10*t.^alpha, alpha);
 
-% Scalar wrapper required by nlfode_vec interface.
-% k is unused because the model has only one state.
-function y=fun(t,x,k)
-        y = -10*x(1) ;
-end
+% fhbvm2 uses a mixed mesh: ten graded points cover the first interval of
+% width h, followed by a uniform mesh with stepsize h.
+fhbvm2_graded_span = 1;
+fhbvm2_graded_points = 10;
 
 % Benchmark result matrices:
 % column 1 -> runtime in seconds, column 2 -> solution error norm.
@@ -40,6 +39,7 @@ Bench8=zeros(length(H),2);
 % Sweep all step sizes and collect timing + error statistics.
 for i=1:length(H)
     h=H(i);
+    N=round((T-t0)/h);
 
 % Runtime measurements for each solver.
 Bench1(i,1) = timeit(@() fde_pi1_ex(alpha,f_fun,t0,T,y0,h));
@@ -77,11 +77,38 @@ end
 %%
 % Export benchmark tables to CSV.
 % Each file stores two columns: [runtime, error].
-writematrix(Bench1,'Linear_Singleterm_MATLAB_PIEX.csv')
-writematrix(Bench2,'Linear_Singleterm_MATLAB_PECE.csv')
-writematrix(Bench3,'Linear_Singleterm_MATLAB_PIRect.csv')
-writematrix(Bench4,'Linear_Singleterm_MATLAB_PITrap.csv')
-writematrix(Bench5,'Linear_Singleterm_MATLAB_NLFODE_VEC.csv')
-writematrix(Bench6,'Linear_Singleterm_MATLAB_Trapzoid.csv')
-writematrix(Bench7,'Linear_Singleterm_MATLAB_NewtonGregory.csv')
-writematrix(Bench8,'Linear_Singleterm_MATLAB_BDF.csv')
+data_dir = '/Users/quqingyu/SciFracX/paper/benchmarks/data';
+if ~isfolder(data_dir)
+    mkdir(data_dir)
+end
+writematrix(Bench1,fullfile(data_dir,'Linear_Singleterm_MATLAB_PIEX.csv'))
+writematrix(Bench2,fullfile(data_dir,'Linear_Singleterm_MATLAB_PECE.csv'))
+writematrix(Bench3,fullfile(data_dir,'Linear_Singleterm_MATLAB_PIRect.csv'))
+writematrix(Bench4,fullfile(data_dir,'Linear_Singleterm_MATLAB_PITrap.csv'))
+writematrix(Bench5,fullfile(data_dir,'Linear_Singleterm_MATLAB_NLFODE_VEC.csv'))
+writematrix(Bench6,fullfile(data_dir,'Linear_Singleterm_MATLAB_Trapzoid.csv'))
+writematrix(Bench7,fullfile(data_dir,'Linear_Singleterm_MATLAB_NewtonGregory.csv'))
+writematrix(Bench8,fullfile(data_dir,'Linear_Singleterm_MATLAB_BDF.csv'))
+
+% Scalar wrapper required by the nlfode_vec interface.
+% k is unused because the model has only one state.
+function y = fun(~,x,~)
+    y = -10*x(1);
+end
+
+% Unified problem callback required by fhbvm:
+%   g_fun()       -> fractional order
+%   g_fun(t,y)    -> vectorized right-hand side
+%   g_fun(t,y,1)  -> Jacobian with respect to y
+function value = g_fun(~,y,~)
+    if nargin == 0
+        value = 0.8;
+    elseif nargin == 2
+        value = -10.*y;
+    elseif nargin == 3
+        value = -10;
+    else
+        error('g_fun:InvalidInputCount', ...
+            'g_fun expects 0, 2, or 3 input arguments.');
+    end
+end

@@ -7,7 +7,7 @@ u0 = 1.0
 tspan = (0.0, 5.0)
 order = 0.8
 analytical_solution(u, p, t) = [mittleff(order, -10*t^order)]
-fun = ODEFunction(f!)#, analytic = analytical_solution)
+fun = ODEFunction{false}(f!)#, analytic = analytical_solution)
 prob = FODEProblem(fun, order, u0, tspan)
 sol = solve(prob, PIEX(), dt=0.001)
 # Benchmarking
@@ -15,9 +15,10 @@ E1 = Float64[];T1 = Float64[];E2 = Float64[];T2 = Float64[]
 E3 = Float64[];T3 = Float64[];E4 = Float64[];T4 = Float64[];
 E5 = Float64[];T5 = Float64[];E6 = Float64[];T6 = Float64[];
 E7 = Float64[];T7 = Float64[];E8 = Float64[];T8 = Float64[];
+E9 = Float64[];T9 = Float64[];E10 = Float64[];T10 = Float64[];
 h = Float64[]
 
-for n in range(3, 7)
+for n in range(3, 8)
     println("n: $n")# to print out the current step of runing
     h = 2.0^-n #stepsize of computting
         #computing the time
@@ -29,6 +30,9 @@ for n in range(3, 7)
     t6= @benchmark solve($(prob), $(BDF()), dt = $(h)); seconds=1
     t7 = @benchmark solve($(prob), $(NewtonGregory()), dt = $(h)); seconds=1
     t8 = @benchmark solve($(prob), $(Trapezoid()), dt = $(h)); seconds=1
+    t9 = @benchmark solve($(prob), $(KernelCompression()), dt = $(h)); seconds=1
+    t10 = @benchmark solve($(prob), $(SoE()), dt = $(h)); seconds=1
+
 
     # convert from nano seconds to seconds
     push!(T1, mean(t1).time / 10^9)
@@ -39,6 +43,9 @@ for n in range(3, 7)
     push!(T6, mean(t6).time / 10^9)
     push!(T7, mean(t7).time / 10^9)
     push!(T8, mean(t8).time / 10^9)
+    push!(T9, mean(t9).time / 10^9)
+    push!(T10, mean(t10).time / 10^9)
+
 
     #computing the error
     sol1 = solve(prob, FdeSolverPECE(), dt = h);
@@ -49,26 +56,34 @@ for n in range(3, 7)
     sol6 =  solve(prob, BDF(), dt = h);
     sol7 =  solve(prob, NewtonGregory(), dt = h);
     sol8 =  solve(prob, Trapezoid(), dt = h);
+    sol9 =  solve(prob, KernelCompression(), dt = h);
+    sol10 =  solve(prob, SoE(), dt = h);
+
 
     exa = analytical_solution.(0, 0, sol3.t)
 
-    ery1=norm(sol1.u - exa, 2)
-    ery3=norm(sol2.u - exa, 2)
-    ery3=norm(sol3.u - exa, 2)
-    ery4=norm(sol4.u - exa, 2)
-    ery5=norm(sol5.u - exa, 2)
-    ery6=norm(sol6.u - exa, 2)
-    ery7=norm(sol7.u - exa, 2)
-    ery8=norm(sol8.u - exa, 2)
+    ery1=norm(sol1.u - exa, Inf)
+    ery2=norm(sol2.u - exa, Inf)
+    ery3=norm(sol3.u - exa, Inf)
+    ery4=norm(sol4.u - exa, Inf)
+    ery5=norm(sol5.u - exa, Inf)
+    ery6=norm(sol6.u - exa, Inf)
+    ery7=norm(sol7.u - exa, Inf)
+    ery8=norm(sol8.u - exa, Inf)
+    ery9=norm(sol9.u - exa, Inf)
+    ery10=norm(sol10.u - exa, Inf)
+
 
     push!(E1, ery1)
-    push!(E2, ery1)
+    push!(E2, ery2)
     push!(E3, ery3)
     push!(E4, ery4)
     push!(E5, ery5)
     push!(E6, ery6)
     push!(E7, ery7)
     push!(E8, ery8)
+    push!(E9, ery9)
+    push!(E10, ery10)
 end
 
 #save data
@@ -80,4 +95,7 @@ CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_Fraction
 CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_BDF.csv",  DataFrame(time = eval(Symbol("T6")), error = eval(Symbol("E6"))))
 CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_NewtonGregory.csv",  DataFrame(time = eval(Symbol("T7")), error = eval(Symbol("E7"))))
 CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_Trapzoid.csv",  DataFrame(time = eval(Symbol("T8")), error = eval(Symbol("E8"))))
+CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_KernelCompression.csv",  DataFrame(time = eval(Symbol("T9")), error = eval(Symbol("E9"))))
+CSV.write("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_SoE.csv",  DataFrame(time = eval(Symbol("T10")), error = eval(Symbol("E10"))))
+
 

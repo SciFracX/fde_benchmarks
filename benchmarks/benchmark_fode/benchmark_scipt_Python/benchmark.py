@@ -36,7 +36,7 @@ ts = []
 ys = []
 
 # Step-size sweep: dt = 2^{-i}, i = 3,...,7.
-dts = [2.0**(-i) for i in range(3, 8)]
+dts = [2.0**(-i) for i in range(3, 9)]
 
 # Benchmark table with one row per dt:
 #   - time: execution time in seconds

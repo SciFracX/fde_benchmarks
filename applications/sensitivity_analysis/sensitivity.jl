@@ -1,178 +1,171 @@
+"""
+    Global sensitivity analysis of steady oscillation amplitudes
+
+The uncertain forcing frequency makes terminal displacement and pointwise
+trajectory summaries strongly phase dependent. This script therefore uses
+phase-insensitive quantities of interest computed over the final complete
+forcing cycles of each trajectory:
+
+1. multi-cycle RMS displacement;
+2. half peak-to-peak amplitude.
+
+The Sobol figure reports the first quantity. Set `FODE_SOBOL_SAMPLES` to a
+smaller value only for smoke tests; the publication default remains 5000.
+"""
+
+using CairoMakie
+using CSV
+using DataFrames
 using FractionalDiffEq
 using GlobalSensitivity
 using QuasiMonteCarlo
+using Random
 using Statistics
-using DataFrames
-using CairoMakie
 
-# -----------------------------------------------------------------------------
-# Quantity of interest (QoI)
-# -----------------------------------------------------------------------------
-# This script performs a Sobol global sensitivity study for a viscoelastic
-# oscillator modeled with a multi-term fractional differential equation. The
-# central task is to define a quantity of interest that can be evaluated many
-# times for different parameter combinations.
-#
-# The parameter vector `p` is interpreted as:
-#   m   -> mass
-#   c   -> fractional damping coefficient
-#   α   -> fractional derivative order
-#   k   -> linear stiffness
-#   F0  -> forcing amplitude
-#   ω   -> forcing frequency
-#
-# For each parameter sample, the model is integrated over a fixed time horizon
-# and three scalar response metrics are returned:
-#   1. Peak absolute displacement
-#   2. Root-mean-square displacement
-#   3. Final absolute displacement
-#
-# In the post-processing section below, the RMS response is used as the main
-# QoI because it is generally smoother than the peak value and therefore tends
-# to produce more stable sensitivity rankings.
-function viscoelastic_qoi(p)
-    m, c, α, k, F0, ω = p
+const OUTPUT_DIR = @__DIR__
+const SOLVER_DT = parse(Float64, get(ENV, "FODE_DT", "0.01"))
+const SENSITIVITY_TMAX = parse(Float64, get(ENV, "FODE_SENSITIVITY_TMAX", "60.0"))
+const STEADY_CYCLES = parse(Int, get(ENV, "FODE_STEADY_CYCLES", "5"))
+const SOBOL_SAMPLES = parse(Int, get(ENV, "FODE_SOBOL_SAMPLES", "5000"))
+const SOBOL_SEED = parse(Int, get(ENV, "FODE_SOBOL_SEED", "20250017"))
+const OUTPUT_STEM = get(ENV, "FODE_SENSITIVITY_OUTPUT_STEM", "sobol_sensitivity_indices_rms")
 
-    # Simulation horizon. A long enough interval is used to capture both the
-    # transient response and the later-time oscillatory behavior.
-    T = 30.0
-    tspan = (0.0, T)
-
-    # Initial displacement and velocity.
-    x0 = 0.0
-    v0 = 0.0
-
-    # Schematic model form:
-    #   m * x'' + c * D^α x + k * x = F0 * sin(ω * t)
-    #
-    # The exact constructor below should match the multi-term FODE interface
-    # provided by the version of FractionalDiffEq.jl used in this project.
-    prob = MultiTermsFODEProblem([
-            m,
-            c,
-            k,
-        ],
-        [2.0, α, 0.0],
-        (u, p, t) -> F0 * sin(ω * t),
-        [x0, v0],
-        tspan,
-        [0]
+"""Extract the final `cycles` complete forcing periods from a trajectory."""
+function final_cycle_indices(t, ω; cycles = STEADY_CYCLES)
+    period = 2π / ω
+    window_start = last(t) - cycles * period
+    window_start >= first(t) || error(
+        "The simulation horizon must contain at least $(cycles) forcing periods",
     )
-
-    # Numerical integration of the fractional system.
-    sol = solve(prob, MTPITrap(), dt = 0.01)
-
-    # Extract the displacement history from the state vector.
-    x = [u[1] for u in sol.u]
-
-    # Maximum excursion of the displacement trajectory.
-    q_peak = maximum(abs.(x))
-
-    # RMS displacement, which captures the overall response amplitude across the
-    # full time interval.
-    q_rms = sqrt(mean(abs2, x))
-
-    # Terminal displacement magnitude at the final simulation time.
-    q_final = abs(x[end])
-
-    return [q_peak, q_rms, q_final]
+    return findall(>=(window_start), t)
 end
 
-# -----------------------------------------------------------------------------
-# Parameter uncertainty bounds
-# -----------------------------------------------------------------------------
-# Sobol analysis assumes a rectangular parameter domain. The lower and upper
-# bounds below define a moderate uncertainty range for each physical parameter.
-lb = [0.8, 0.5, 1.1, 8.0, 0.8, 1.0]
-ub = [1.2, 8.0, 1.9, 12.0, 1.2, 1.5]
+"""
+Evaluate phase-insensitive steady-response quantities of interest.
 
-# Convert paired lower and upper limits into the format expected by `gsa`.
-bounds = [[lb[i], ub[i]] for i in eachindex(lb)]
+The parameter vector is `[m, c, α, k, F₀, ω]`. The returned quantities are
+`[steady multi-cycle RMS, steady half peak-to-peak amplitude]`.
+"""
+function viscoelastic_qoi(p)
+    m, c, α, k, F0, ω = p
+    tspan = (0.0, SENSITIVITY_TMAX)
 
-# -----------------------------------------------------------------------------
-# Global sensitivity analysis
-# -----------------------------------------------------------------------------
-# Use a fairly large Monte Carlo budget so the estimated Sobol indices are
-# stable enough for interpretation and comparison.
-sobol_res = gsa(
-    viscoelastic_qoi,
-    Sobol(),
-    bounds;
-    samples = 5000,
-)
+    prob = MultiTermsFODEProblem(
+        [m, c, k],
+        [2.0, α, 0.0],
+        (u, p, t) -> F0 * sin(ω * t),
+        [0.0, 0.0],
+        tspan,
+    )
 
-# Human-readable labels for the parameter axis and the reporting table.
-param_names = [L"m", L"c", L"\alpha", L"k", L"F_0", L"\omega"]
+    sol = solve(prob, MTPITrap(), dt = SOLVER_DT)
+    x = first(sol.u) isa Number ? collect(sol.u) : [u[1] for u in sol.u]
+    idx = final_cycle_indices(sol.t, ω)
+    x_steady = @view x[idx]
 
-# Depending on the result type, `GlobalSensitivity.jl` may store the Sobol
-# matrices in either parameter-major or QoI-major orientation. This helper
-# normalizes the layout so that rows always correspond to parameters.
+    q_rms_steady = sqrt(mean(abs2, x_steady))
+    q_amplitude_steady = (maximum(x_steady) - minimum(x_steady)) / 2
+
+    return [q_rms_steady, q_amplitude_steady]
+end
+
+const LOWER_BOUNDS = [0.8, 0.5, 1.1, 8.0, 0.8, 1.0]
+const UPPER_BOUNDS = [1.2, 8.0, 1.9, 12.0, 1.2, 1.5]
+
+"""Normalize parameter-major and QoI-major Sobol matrix layouts."""
 function orient_sensitivity_matrix(matrix, nparams)
     size(matrix, 1) == nparams && return matrix
     size(matrix, 2) == nparams && return permutedims(matrix)
-
     error("Unexpected sensitivity matrix size: $(size(matrix))")
 end
 
-# First-order indices measure the direct effect of each parameter alone.
-S1 = orient_sensitivity_matrix(sobol_res.S1, length(param_names))
+function main()
+    minimum_periods = SENSITIVITY_TMAX / (2π / LOWER_BOUNDS[6])
+    minimum_periods >= STEADY_CYCLES || error(
+        "FODE_SENSITIVITY_TMAX is too short for FODE_STEADY_CYCLES",
+    )
+    SOBOL_SAMPLES >= 8 || error("FODE_SOBOL_SAMPLES must be at least 8")
 
-# Total-order indices measure the direct effect plus all interaction effects.
-ST = orient_sensitivity_matrix(sobol_res.ST, length(param_names))
+    println(
+        "Computing Sobol indices from $(SOBOL_SAMPLES) samples; " *
+        "QoIs use the final $(STEADY_CYCLES) complete forcing periods ...",
+    )
+    # Construct two independently shifted Sobol design matrices. Calling the
+    # range-based convenience API would split one deterministic high-dimensional
+    # Sobol set into A and B, which does not preserve the intended QMC design.
+    sampler = SobolSample(R = Shift(rng = MersenneTwister(SOBOL_SEED)))
+    design_a, design_b = QuasiMonteCarlo.generate_design_matrices(
+        SOBOL_SAMPLES,
+        LOWER_BOUNDS,
+        UPPER_BOUNDS,
+        sampler,
+        2,
+    )
+    sobol_result = gsa(
+        viscoelastic_qoi,
+        Sobol(),
+        design_a,
+        design_b,
+    )
 
-# Assemble a compact table for the RMS response.
-# Column 2 is selected because the QoI vector is ordered as:
-#   [peak displacement, RMS displacement, final displacement]
-df = DataFrame(
-    parameter = param_names,
-    S1 = S1[:, 2],
-    ST = ST[:, 2],
-)
+    parameter_names = ["m", "c", "alpha", "k", "F0", "omega"]
+    parameter_labels = [L"m", L"c", L"\alpha", L"k", L"F_0", L"\omega"]
+    first_order = orient_sensitivity_matrix(sobol_result.S1, length(parameter_labels))
+    total_order = orient_sensitivity_matrix(sobol_result.ST, length(parameter_labels))
 
-# Sort parameters by total-order importance so the strongest contributors appear
-# first in the final plot.
-sort!(df, :ST, rev = true)
+    # Column 1 corresponds to the steady multi-cycle RMS QoI. Column 2 is the
+    # steady half peak-to-peak amplitude and is retained for cross-checking.
+    results = DataFrame(
+        parameter = parameter_names,
+        plot_label = parameter_labels,
+        S1 = first_order[:, 1],
+        ST = total_order[:, 1],
+    )
+    sort!(results, :ST, rev = true)
 
-# -----------------------------------------------------------------------------
-# Visualization
-# -----------------------------------------------------------------------------
-# The final figure compares first-order and total-order Sobol indices. The gap
-# between the two bars indicates how much interaction with other parameters is
-# contributing to the total influence of each variable.
-fig = Figure(size = (720, 420))
+    fig = Figure(size = (760, 440), fontsize = 16)
+    ax = Axis(
+        fig[1, 1],
+        xlabel = "Parameter",
+        ylabel = "Sobol sensitivity index",
+        title = "Global sensitivity of steady multi-cycle RMS displacement",
+    )
 
-ax = Axis(
-    fig[1, 1],
-    xlabel = "Parameter",
-    ylabel = "Sobol sensitivity index",
-    title = "Global sensitivity analysis of RMS displacement",
-)
+    positions = 1:nrow(results)
+    barplot!(
+        ax,
+        positions .- 0.18,
+        results.S1,
+        width = 0.35,
+        color = :steelblue,
+        label = L"First-order index $S_1$",
+    )
+    barplot!(
+        ax,
+        positions .+ 0.18,
+        results.ST,
+        width = 0.35,
+        color = :darkorange,
+        label = L"Total-order index $S_T$",
+    )
+    ax.xticks = (positions, results.plot_label)
+    axislegend(ax, position = :rt, framevisible = true)
 
-# Use the sorted ranking to place parameters on the x-axis.
-x = 1:nrow(df)
+    output_pdf = joinpath(OUTPUT_DIR, "$(OUTPUT_STEM).pdf")
+    output_png = joinpath(OUTPUT_DIR, "$(OUTPUT_STEM).png")
+    output_csv = joinpath(OUTPUT_DIR, "$(OUTPUT_STEM).csv")
+    save(output_pdf, fig)
+    save(output_png, fig, px_per_unit = 2)
+    CSV.write(output_csv, select(results, :parameter, :S1, :ST))
 
-barplot!(
-    ax,
-    x .- 0.18,
-    df.S1,
-    width = 0.35,
-    label = L"First-order index $S_1$",
-)
+    println(results)
+    println("Saved $(output_pdf)")
+    println("Saved $(output_png)")
+    println("Saved $(output_csv)")
 
-# Overlay the total-order contribution so interaction effects are visible.
-barplot!(
-    ax,
-    x .+ 0.18,
-    df.ST,
-    width = 0.35,
-    label = L"Total-order index $S_t$",
-)
+    return results, fig
+end
 
-# Replace numeric ticks with parameter labels for readability.
-ax.xticks = (x, df.parameter)
-
-axislegend(ax, position = :rt)
-
-# Save both vector and raster outputs
-save("sobol_sensitivity_indices_rms.pdf", fig)
-save("sobol_sensitivity_indices_rms.png", fig)
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

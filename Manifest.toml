@@ -846,9 +846,9 @@ weakdeps = ["StaticArrays"]
 
 [[deps.FractionalDiffEq]]
 deps = ["ConcreteStructs", "DiffEqBase", "FFTW", "FastClosures", "ForwardDiff", "HypergeometricFunctions", "InvertedIndices", "LinearAlgebra", "Polynomials", "RecipesBase", "RecursiveArrayTools", "Reexport", "SciMLBase", "SparseArrays", "SpecialFunctions", "SpecialMatrices", "ToeplitzMatrices"]
-git-tree-sha1 = "430a7eb25d458a473988a9956553180b248e3e10"
+path = "/Users/quqingyu/SciFracX/FractionalDiffEq.jl"
 uuid = "c7492dd8-6170-483b-af64-cefb6c377d9a"
-version = "0.5.1"
+version = "0.6.0"
 weakdeps = ["FdeSolver"]
 
     [deps.FractionalDiffEq.extensions]

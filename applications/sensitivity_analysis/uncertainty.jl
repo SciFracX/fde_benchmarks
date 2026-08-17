@@ -1,127 +1,58 @@
 """
-    Uncertainty and Sensitivity Analysis for Fractional-Order Oscillator Systems
-    
-    This script performs a comprehensive uncertainty quantification and sensitivity analysis
-    on a fractional-order damped harmonic oscillator system subject to periodic forcing.
-    
-    Key Components:
-    1. Parameter Space Definition: Defines the ranges for six system parameters including
-       the fractional differentiation order α, which is the key parameter of interest.
-    
-    2. Uncertainty Propagation: Uses quasi-Monte Carlo sampling methods to propagate
-       parametric uncertainties through the nonlinear fractional differential equations.
-    
-    3. Multi-Order Analysis: Illustrates how variations in the fractional derivative order
-       affect the fundamental dynamical behavior of the system.
-    
-    4. Statistical Analysis: Computes quantile-based uncertainty bands, mean/median
-       trajectories, and provides visual representation of uncertainty intervals.
+    Long-horizon uncertainty analysis for the fractional Bagley-Torvik oscillator
+
+This script addresses two features that are hidden by pointwise summaries of the
+raw displacement trajectories:
+
+1. Under persistent harmonic forcing, the response approaches a nonzero periodic
+   state. Damping is therefore assessed from the transient residual after the
+   fitted steady-periodic response is removed.
+2. When the forcing frequency is uncertain, the trajectories lose phase
+   coherence. Pointwise means and medians of displacement then approach zero by
+   cancellation and are not representative trajectories. The uncertainty plot
+   therefore uses a phase-insensitive, one-cycle moving RMS amplitude.
+
+The uncertain parameters are treated as mutually independent uniform variables
+over the ranges specified below. Environment variables may be used for quick
+convergence studies without editing the publication defaults; for example,
+`FODE_UQ_SAMPLES=32 FODE_OUTPUT_STEM=fractional_uncertainty_smoke`.
 """
 
-using QuasiMonteCarlo
-using FractionalDiffEq
-using Statistics
 using CairoMakie
+using CSV
+using DataFrames
+using FractionalDiffEq
+using QuasiMonteCarlo
+using Statistics
 
-# ========================================================================
-# Basic Setup and Parameter Definitions
-# ========================================================================
-# This section defines the parameter space for the fractional-order
-# oscillator system. The system model is:
-#     m*d²x/dt² + c*dᵅx/dtᵅ + k*x = F₀*sin(ωt)
-# where:
-#   - m: mass (inertial coefficient)
-#   - c: damping coefficient
-#   - α: fractional derivation order (key parameter, typically α ∈ [1, 2])
-#   - k: stiffness coefficient
-#   - F₀: forcing amplitude
-#   - ω: excitation frequency
+const OUTPUT_DIR = @__DIR__
+const SOLVER_DT = parse(Float64, get(ENV, "FODE_DT", "0.01"))
+const OUTPUT_DT = parse(Float64, get(ENV, "FODE_OUTPUT_DT", "0.05"))
+const ALPHA_TMAX = parse(Float64, get(ENV, "FODE_ALPHA_TMAX", "80.0"))
+const UQ_TMAX = parse(Float64, get(ENV, "FODE_UQ_TMAX", "40.0"))
+const N_UQ = parse(Int, get(ENV, "FODE_UQ_SAMPLES", "512"))
+const OUTPUT_STEM = get(ENV, "FODE_OUTPUT_STEM", "fractional_uncertainty")
+const FIT_CYCLES = 5
 
-param_names = [
-    "m",   # Mass (kg) - controls system inertia
-    "c",   # Damping coefficient - controls energy dissipation
-    "α",   # Fractional order - defines memory/hereditary behavior
-    "k",   # Stiffness coefficient - controls restoring force
-    "F₀",  # Forcing amplitude - magnitude of external excitation
-    "ω"    # Forcing frequency - frequency of external excitation
-]
+const LOWER_BOUNDS = [0.8, 0.5, 1.1, 8.0, 0.8, 1.0]
+const UPPER_BOUNDS = [1.2, 8.0, 1.9, 12.0, 1.2, 1.5]
 
-# Lower bounds for each parameter (normalized around typical values)
-lb = [
-    0.8,   # Lower bound for mass
-    0.5,   # Lower bound for damping coefficient
-    1.1,   # Lower bound for fractional order (slightly above integer derivative)
-    8.0,   # Lower bound for stiffness
-    0.8,   # Lower bound for forcing amplitude
-    1.0    # Lower bound for forcing frequency
-]
-
-# Upper bounds for each parameter
-ub = [
-    1.2,   # Upper bound for mass
-    8.0,   # Upper bound for damping coefficient (allows wide variation)
-    1.9,   # Upper bound for fractional order (approaching integer order 2)
-    12.0,  # Upper bound for stiffness
-    1.2,   # Upper bound for forcing amplitude
-    1.5    # Upper bound for forcing frequency
-]
-
-# Temporal discretization for solution output
-# Output times: from t=0 to t=20 with uniform spacing of 0.02 time units
-# This resolution (500 time points) captures the transient and steady-state behavior
-saveat = collect(0.0:0.02:20.0)
-N_t = length(saveat)  # Total number of time points for analysis
-
-# ========================================================================
-# Solution Interpolation and Resampling
-# ========================================================================
-# The fractional differential equation solver produces solutions at
-# internally determined time points. This function performs linear
-# interpolation to evaluate the solution at specified output times (saveat).
-# This is necessary because the solver's output grid may differ from the
-# desired analysis grid.
-
+"""Linearly resample a solution onto `saveat`."""
 function linear_resample(t, u, saveat)
-    """
-        linear_resample(t, u, saveat)
-    
-    Performs linear interpolation on solution data.
-    
-    Arguments:
-        t::Vector: Original time points from the solver
-        u::Vector: Solution values at the original time points
-        saveat::Vector: Desired output time points for resampling
-    
-    Returns:
-        y::Vector: Interpolated solution values at requested time points
-    
-    Algorithm:
-        Uses a forward-searching algorithm with linear interpolation between
-        adjacent data points. For each requested time point tj in saveat,
-        we find the bracketing original time points t[k] and t[k+1],
-        then compute interpolation weight θ and blend the surrounding values.
-    """
     y = similar(saveat, Float64)
+    k = 1
 
-    k = 1  # Index tracking current position in original time grid
     for (j, tj) in pairs(saveat)
-        # Advance k to find the correct bracket for current time point tj
         while k < length(t) - 1 && t[k + 1] < tj
             k += 1
         end
 
-        # Handle boundary conditions and compute interpolation
         if tj <= t[1]
-            # Before first point: use first value
             y[j] = u[1]
         elseif tj >= t[end]
-            # After last point: use last value
             y[j] = u[end]
         else
-            # Interior point: perform linear interpolation
-            # θ ∈ [0,1] is the normalized position between t[k] and t[k+1]
             θ = (tj - t[k]) / (t[k + 1] - t[k])
-            # Linear blend: y = (1-θ)*u[k] + θ*u[k+1]
             y[j] = (1 - θ) * u[k] + θ * u[k + 1]
         end
     end
@@ -129,286 +60,339 @@ function linear_resample(t, u, saveat)
     return y
 end
 
-# ========================================================================
-# Fractional-Order Oscillator System Solver
-# ========================================================================
-# This function solves the multi-term fractional damped oscillator equation:
-#     m*d²x/dt² + c*dᵅx/dtᵅ + k*x = F₀*sin(ωt)
-# The system is converted to state-space form for numerical integration.
+"""
+    simulate_fractional_oscillator(p, saveat; dt=SOLVER_DT)
 
-function simulate_fractional_oscillator(p, saveat)
-    """
-        simulate_fractional_oscillator(p, saveat)
-    
-    Solves a fractional-order forced oscillator system.
-    
-    Arguments:
-        p::Vector: Parameter vector [m, c, α, k, F₀, ω]
-                   - m: mass (inertial parameter)
-                   - c: damping coefficient
-                   - α: fractional derivative order
-                   - k: stiffness
-                   - F₀: forcing amplitude
-                   - ω: forcing frequency
-        saveat::Vector: Time points at which to return solution values
-    
-    Returns:
-        x::Vector: Displacement response at requested time points
-    
-    Implementation Details:
-        - Uses multi-term fractional ODE formulation
-        - Employs MTPITrap solver (Multi-Term Predictor-Integrator Trap-rule method)
-        - dt=0.01 provides adequate temporal resolution for accuracy
-        - Solution is resampled to match requested time grid
-    """
-    # Unpack parameter vector
+Solve
+
+    m*x'' + c*D^α*x + k*x = F₀*sin(ω*t),  x(0)=x'(0)=0,
+
+on the interval defined by `saveat` and return the displacement on that grid.
+"""
+function simulate_fractional_oscillator(p, saveat; dt = SOLVER_DT)
     m, c, α, k, F0, ω = p
+    tspan = (first(saveat), last(saveat))
 
-    # Temporal integration domain: from start to steady-state
-    tspan = (0.0, 20.0)
-    
-    # Initial conditions: system starts at rest
-    x0 = 0.0   # Initial displacement
-    v0 = 0.0   # Initial velocity
-
-    # Define the multi-term fractional ODE problem
-    # The equation is rewritten as: m*d²x/dt² + c*dᵅx/dtᵅ + k*x = F₀*sin(ωt)
-    # In multi-term format: [m, c, k] are coefficients (order of precedence)
-    #                       [2.0, α, 0.0] are corresponding derivative orders
-    #                       These form: m*Dᵗ² + c*Dᵗᵅ + k*Dᵗ⁰ where Dᵗ denotes fractional differentiation
     prob = MultiTermsFODEProblem(
-        [m, c, k],                    # Coefficient vector
-        [2.0, α, 0.0],                # Derivative order vector (α ∈ [1,2])
-        (u, p, t) -> F0 * sin(ω * t), # Forcing function: periodic sine wave
-        [x0, v0],                      # Initial conditions [displacement, velocity]
-        tspan                          # Time span for integration
+        [m, c, k],
+        [2.0, α, 0.0],
+        (u, p, t) -> F0 * sin(ω * t),
+        [0.0, 0.0],
+        tspan,
     )
 
-    # Solve using Multi-Term Predictor-Integrator Trapezoidal rule
-    # This is a high-order numerical method suitable for fractional equations
-    sol = solve(prob, MTPITrap(), dt = 0.01)
+    sol = solve(prob, MTPITrap(), dt = dt)
+    x_raw = first(sol.u) isa Number ? collect(sol.u) : [u[1] for u in sol.u]
+    return linear_resample(sol.t, x_raw, saveat)
+end
 
-    # Extract raw solution data from solver
-    t_raw = sol.t      # Original time grid from solver
-    u_raw = Array(sol.u)  # Solution array
+"""
+Fit `a*sin(ωt) + b*cos(ωt)` over the last `cycles` forcing periods.
 
-    # Extract displacement component (first state variable)
-    x_raw = if eltype(u_raw) <: Number
-        # If solution is scalar, use directly
-        u_raw
-    else
-        # If solution is multi-dimensional (state vector), extract first component
-        [ui[1] for ui in sol.u]
+The fitted periodic response is used only to separate the persistent forced
+response from the decaying transient; it is not interpreted as a mean curve.
+"""
+function fit_steady_periodic_response(t, x, ω; cycles = FIT_CYCLES)
+    period = 2π / ω
+    fit_start = max(first(t), last(t) - cycles * period)
+    idx = findall(>=(fit_start), t)
+    length(idx) >= 3 || error("Not enough points to fit the periodic response")
+
+    design = hcat(sin.(ω .* t[idx]), cos.(ω .* t[idx]))
+    coefficients = design \ x[idx]
+    fitted = coefficients[1] .* sin.(ω .* t) .+ coefficients[2] .* cos.(ω .* t)
+    amplitude = hypot(coefficients[1], coefficients[2])
+    phase = atan(coefficients[2], coefficients[1])
+
+    return fitted, amplitude, phase
+end
+
+"""Return local maxima of `abs.(residual)` for a transient-envelope plot."""
+function transient_peak_envelope(t, residual; threshold = 1.0e-10)
+    magnitude = abs.(residual)
+    peak_indices = [
+        i for i in 2:(length(magnitude) - 1) if
+        magnitude[i] >= magnitude[i - 1] &&
+        magnitude[i] >= magnitude[i + 1] &&
+        magnitude[i] > threshold
+    ]
+    return t[peak_indices], magnitude[peak_indices]
+end
+
+"""
+Compute a trailing one-forcing-period RMS amplitude.
+
+The output is `NaN` until a complete forcing period is available. Because each
+sample uses its own period `2π/ω`, the statistic is insensitive to phase and
+comparable across the uncertain forcing frequencies.
+"""
+function one_cycle_rms(x, t, ω)
+    length(t) == length(x) || throw(DimensionMismatch("t and x must have equal length"))
+    length(t) >= 2 || error("At least two time points are required")
+
+    output_dt = t[2] - t[1]
+    window = max(2, round(Int, (2π / ω) / output_dt) + 1)
+    result = fill(NaN, length(x))
+    squared = abs2.(x)
+    cumulative = cumsum(squared)
+
+    for j in window:length(x)
+        first_index = j - window + 1
+        window_sum = cumulative[j] - (first_index > 1 ? cumulative[first_index - 1] : 0.0)
+        result[j] = sqrt(window_sum / window)
     end
 
-    # Resample solution to target output grid (saveat)
-    return linear_resample(t_raw, x_raw, saveat)
+    return result
 end
 
-# ========================================================================
-# Parametric Sensitivity Analysis - Varying Fractional Order α
-# ========================================================================
-# This section investigates how the fractional derivative order α affects
-# the system's frequency response and damping characteristics. By varying α
-# while keeping other parameters fixed, we can isolate the influence of
-# memory effects and non-local temporal effects on system dynamics.
-#
-# The fractional order α controls the nature of the damping:
-#   - α = 1: Standard Newtonian viscous damping (~velocity)
-#   - α ∈ (1,2): Anomalous/memory-based damping (fractional behavior)
-#   - α = 2: Pure inertial response (no damping)
+"""Compute pointwise empirical quantiles, ignoring leading `NaN` values."""
+function pointwise_quantiles(values, probabilities)
+    summaries = fill(NaN, length(probabilities), size(values, 1))
 
-p_base = [
-    1.0,   # m:  mass = 1.0 kg
-    3.0,   # c:  damping coefficient = 3.0
-    1.5,   # α:  baseline fractional order = 1.5 (mid-range)
-    10.0,  # k:  stiffness = 10.0 N/m
-    1.0,   # F₀: forcing amplitude = 1.0 N
-    1.2    # ω:  forcing frequency = 1.2 rad/s
-]
+    for j in axes(values, 1)
+        valid = filter(isfinite, @view values[j, :])
+        isempty(valid) && continue
+        summaries[:, j] .= quantile(valid, probabilities)
+    end
 
-# Test values for fractional order spanning the entire range of interest
-# These values demonstrate the transition from anomalous damping to classical behavior
-α_values = [1.1, 1.3, 1.5, 1.7, 1.9]  # Varies from strongly fractional to nearly classical
-
-# Create visualization figure
-fig = Figure(size = (1500, 520), fontsize = 18)
-
-# First subplot: α sensitivity analysis
-ax1 = Axis(
-    fig[1, 1],
-    xlabel = "Time",
-    ylabel = "Displacement",
-    title = "Effect of fractional order α on system response",
-    xgridvisible = true,
-    ygridvisible = true,
-)
-ylims!(ax1, -0.5, 0.5)
-
-# Simulate and plot trajectories for each α value
-for α in α_values
-    p = copy(p_base)        # Copy base parameters
-    p[3] = α                # Override α with current test value
-    x = simulate_fractional_oscillator(p, saveat)  # Solve the system
-    lines!(ax1, saveat, x, linewidth = 2, label = L"\alpha = %$α")
+    return summaries
 end
 
-# Configure legend to show current α values
-axislegend(ax1, position = :rt, framevisible = true)
+function main()
+    ALPHA_TMAX > 2π / 1.2 || error("FODE_ALPHA_TMAX must cover at least one forcing period")
+    UQ_TMAX > 2π / LOWER_BOUNDS[6] ||
+        error("FODE_UQ_TMAX must cover at least one period of every sampled frequency")
+    N_UQ >= 8 || error("FODE_UQ_SAMPLES must be at least 8")
 
-# ========================================================================
-# Uncertainty Quantification via Quasi-Monte Carlo Sampling
-# ========================================================================
-# This section performs a comprehensive uncertainty analysis by:
-# 1. Sampling the 6-dimensional parameter space using quasi-random sequences
-# 2. Propagating parametric uncertainty through the nonlinear system
-# 3. Computing statistical moments (mean, quantiles) of the response
-# 4. Visualizing the impact of combined parameter variations
-#
-# Quasi-Monte Carlo (Sobol sequences) provides:
-#   - Better space-filling properties than random sampling
-#   - Faster convergence for small sample sizes
-#   - Low-discrepancy point distributions
+    alpha_saveat = collect(0.0:OUTPUT_DT:ALPHA_TMAX)
+    uq_saveat = collect(0.0:OUTPUT_DT:UQ_TMAX)
 
-N = 1000  # Number of parameter samples for uncertainty analysis
+    p_nominal = [1.0, 3.0, 1.5, 10.0, 1.0, 1.2]
+    α_values = [1.1, 1.3, 1.5, 1.7, 1.9]
 
-# Generate quasi-random samples in unit hypercube [0,1]^6 using Sobol sequence
-# Sobol sequence is a low-discrepancy sequence optimal for multidimensional sampling
-samples_unit = QuasiMonteCarlo.sample(N, 6, SobolSample())
+    alpha_responses = Vector{Vector{Float64}}(undef, length(α_values))
+    transient_peaks = Vector{Tuple{Vector{Float64}, Vector{Float64}}}(undef, length(α_values))
+    steady_amplitudes = zeros(length(α_values))
 
-# Scale unit hypercube samples to actual parameter ranges [lb, ub]
-# For each parameter j and sample i: param[j,i] = lb[j] + samples_unit[j,i] * (ub[j] - lb[j])
-samples = [
-    lb[j] + samples_unit[j, i] * (ub[j] - lb[j])
-    for j in 1:6, i in 1:N
-]
+    println("Computing long-horizon fractional-order sweep to t = $(ALPHA_TMAX) ...")
+    for (i, α) in pairs(α_values)
+        p = copy(p_nominal)
+        p[3] = α
+        x = simulate_fractional_oscillator(p, alpha_saveat)
+        steady, amplitude, phase = fit_steady_periodic_response(alpha_saveat, x, p[6])
 
-# Initialize storage for solution trajectories
-# trajectories[t, i] = displacement at time t for i-th parameter sample
-trajectories = zeros(N_t, N)
+        alpha_responses[i] = x
+        transient_peaks[i] = transient_peak_envelope(alpha_saveat, x .- steady)
+        steady_amplitudes[i] = amplitude
+        println("  α = $(α): fitted steady amplitude = $(round(amplitude, digits = 6)), " *
+                "phase = $(round(phase, digits = 6)) rad")
+    end
 
-# Forward propagate parametric uncertainty through the fractional oscillator
-for i in 1:N
-    p = samples[:, i]  # Extract i-th parameter sample
-    trajectories[:, i] = simulate_fractional_oscillator(p, saveat)  # Solve system
+    println("Computing $(N_UQ) Sobol quasi-Monte Carlo trajectories to t = $(UQ_TMAX) ...")
+    unit_samples = QuasiMonteCarlo.sample(N_UQ, 6, SobolSample())
+    samples = [
+        LOWER_BOUNDS[j] + unit_samples[j, i] * (UPPER_BOUNDS[j] - LOWER_BOUNDS[j])
+        for j in 1:6, i in 1:N_UQ
+    ]
+
+    cycle_rms = fill(NaN, length(uq_saveat), N_UQ)
+    for i in 1:N_UQ
+        x = simulate_fractional_oscillator(@view(samples[:, i]), uq_saveat)
+        cycle_rms[:, i] .= one_cycle_rms(x, uq_saveat, samples[6, i])
+        if i % max(1, N_UQ ÷ 8) == 0 || i == N_UQ
+            println("  completed $(i)/$(N_UQ) trajectories")
+        end
+    end
+
+    probabilities = [0.05, 0.25, 0.50, 0.75, 0.95]
+    q05, q25, q50, q75, q95 = eachrow(pointwise_quantiles(cycle_rms, probabilities))
+    width50 = q75 .- q25
+    width90 = q95 .- q05
+
+    # Start the ensemble summary only when every sample has completed one full
+    # forcing period. This prevents the early curve from changing population.
+    summary_start = 2π / minimum(samples[6, :])
+    summary_indices = findall(>=(summary_start), uq_saveat)
+
+    # Use four equally sized panels so that the diagnostic panels are not
+    # visually subordinate to the raw response and uncertainty summaries.
+    fig = Figure(size = (1700, 1000), fontsize = 17)
+    left_layout = GridLayout()
+    right_layout = GridLayout()
+    fig[1, 1] = left_layout
+    fig[1, 2] = right_layout
+
+    ax_response = Axis(
+        left_layout[1, 1],
+        xlabel = "Time",
+        ylabel = "Displacement",
+        title = "(a) Forced responses over an extended time horizon",
+    )
+    ax_transient = Axis(
+        left_layout[2, 1],
+        xlabel = "Time",
+        ylabel = "Transient peak amplitude",
+        title = "(c) Decay of the transient residual",
+        yscale = log10,
+    )
+    ax_rms = Axis(
+        right_layout[1, 1],
+        xlabel = "Time",
+        ylabel = "One-cycle RMS displacement",
+        title = "(b) Phase-insensitive propagation of parameter uncertainty",
+    )
+    ax_width = Axis(
+        right_layout[2, 1],
+        xlabel = "Time",
+        ylabel = "Interval width",
+        title = "(d) Empirical quantile-band widths",
+    )
+
+    colors = Makie.wong_colors()
+    for (i, α) in pairs(α_values)
+        color = colors[i]
+        lines!(
+            ax_response,
+            alpha_saveat,
+            alpha_responses[i],
+            color = color,
+            linewidth = 2,
+            label = L"\alpha = %$α",
+        )
+        peak_t, peak_magnitude = transient_peaks[i]
+        lines!(
+            ax_transient,
+            peak_t,
+            peak_magnitude,
+            color = color,
+            linewidth = 2,
+            label = L"\alpha = %$α",
+        )
+        scatter!(ax_transient, peak_t, peak_magnitude, color = color, markersize = 4)
+    end
+    axislegend(ax_response, position = :rt, framevisible = true)
+    axislegend(ax_transient, position = :rt, framevisible = true, labelsize = 14)
+
+    t_summary = uq_saveat[summary_indices]
+    band!(
+        ax_rms,
+        t_summary,
+        q05[summary_indices],
+        q95[summary_indices],
+        color = (:steelblue, 0.14),
+        label = "90% empirical uncertainty interval",
+    )
+    band!(
+        ax_rms,
+        t_summary,
+        q25[summary_indices],
+        q75[summary_indices],
+        color = (:orange, 0.24),
+        label = "50% interquartile interval",
+    )
+    # Thin boundary curves keep the interval limits readable while allowing the
+    # trajectories and grid to remain visible through the lighter fills.
+    lines!(
+        ax_rms,
+        t_summary,
+        q05[summary_indices],
+        color = (:steelblue4, 0.60),
+        linewidth = 1.0,
+    )
+    lines!(
+        ax_rms,
+        t_summary,
+        q95[summary_indices],
+        color = (:steelblue4, 0.60),
+        linewidth = 1.0,
+    )
+    lines!(
+        ax_rms,
+        t_summary,
+        q25[summary_indices],
+        color = (:darkorange3, 0.65),
+        linewidth = 1.0,
+    )
+    lines!(
+        ax_rms,
+        t_summary,
+        q75[summary_indices],
+        color = (:darkorange3, 0.65),
+        linewidth = 1.0,
+    )
+    lines!(
+        ax_rms,
+        t_summary,
+        q50[summary_indices],
+        color = :black,
+        linewidth = 2.8,
+        label = "Median one-cycle RMS",
+    )
+    axislegend(ax_rms, position = :rt, framevisible = true, labelsize = 14)
+    # RMS is nonnegative. Including zero avoids visually exaggerating the band
+    # through a truncated vertical axis while preserving its numerical width.
+    ylims!(ax_rms, 0.0, 0.4)
+
+    lines!(
+        ax_width,
+        t_summary,
+        width90[summary_indices],
+        color = :steelblue4,
+        linewidth = 2.5,
+        label = L"Q_{0.95}-Q_{0.05}",
+    )
+    lines!(
+        ax_width,
+        t_summary,
+        width50[summary_indices],
+        color = :darkorange3,
+        linewidth = 2.5,
+        label = L"Q_{0.75}-Q_{0.25}",
+    )
+    axislegend(ax_width, position = :rt, framevisible = true, labelsize = 14)
+    ylims!(ax_width, 0.0, 1.08 * maximum(width90[summary_indices]))
+
+    rowsize!(left_layout, 1, Relative(0.50))
+    rowsize!(left_layout, 2, Relative(0.50))
+    rowsize!(right_layout, 1, Relative(0.50))
+    rowsize!(right_layout, 2, Relative(0.50))
+    rowgap!(left_layout, 12)
+    rowgap!(right_layout, 12)
+    colgap!(fig.layout, 24)
+
+    output_pdf = joinpath(OUTPUT_DIR, "$(OUTPUT_STEM).pdf")
+    output_png = joinpath(OUTPUT_DIR, "$(OUTPUT_STEM).png")
+    amplitude_csv = joinpath(OUTPUT_DIR, "fractional_order_steady_amplitudes.csv")
+    quantile_csv = joinpath(OUTPUT_DIR, "fractional_cycle_rms_quantiles.csv")
+    save(output_pdf, fig)
+    save(output_png, fig, px_per_unit = 2)
+    CSV.write(
+        amplitude_csv,
+        DataFrame(alpha = α_values, steady_amplitude = steady_amplitudes),
+    )
+    CSV.write(
+        quantile_csv,
+        DataFrame(
+            time = t_summary,
+            q05 = q05[summary_indices],
+            q25 = q25[summary_indices],
+            q50 = q50[summary_indices],
+            q75 = q75[summary_indices],
+            q95 = q95[summary_indices],
+            width50 = width50[summary_indices],
+            width90 = width90[summary_indices],
+        ),
+    )
+
+    println("Saved $(output_pdf)")
+    println("Saved $(output_png)")
+    println("Saved $(amplitude_csv)")
+    println("Saved $(quantile_csv)")
+    println("Steady amplitudes: " * join(round.(steady_amplitudes, digits = 6), ", "))
+
+    return fig
 end
 
-# Compute statistical summaries across all sample trajectories
-# At each time point, we have N values from N parameter realizations
-
-# Mean displacement trajectory: E[x(t)] over all parameter samples
-mean_traj = vec(mean(trajectories, dims = 2))
-
-# Median displacement trajectory: 50th percentile of response ensemble
-median_traj = [median(trajectories[j, :]) for j in 1:N_t]
-
-# 90% Confidence interval: captures central 90% of ensemble predictions
-# lower_05: 5th percentile (lower bound, 5% of samples below)
-lower_05 = [quantile(trajectories[j, :], 0.05) for j in 1:N_t]
-# upper_95: 95th percentile (upper bound, 5% of samples above)
-upper_95 = [quantile(trajectories[j, :], 0.95) for j in 1:N_t]
-
-# Interquartile range (IQR): captures central 50% of ensemble predictions
-# lower_25: 25th percentile (lower quartile)
-lower_25 = [quantile(trajectories[j, :], 0.25) for j in 1:N_t]
-# upper_75: 75th percentile (upper quartile)
-upper_75 = [quantile(trajectories[j, :], 0.75) for j in 1:N_t]
-# Create second figure for uncertainty visualization
-fig2 = Figure(size = (780, 460), fontsize = 18)
-
-# Second subplot: Uncertainty quantification visualization
-ax2 = Axis(
-    fig[1, 2],
-    xlabel = "Time",
-    ylabel = "Displacement",
-    title = "Propagation of parameter uncertainty in the fractional oscillator",
-    titlesize = 20,
-    xlabelsize = 18,
-    ylabelsize = 18,
-    xticklabelsize = 15,
-    yticklabelsize = 15,
-    xgridvisible = true,
-    ygridvisible = true,
-)
-
-# Plot outer uncertainty band (90% confidence interval)
-# This shaded region represents where 90% of all possible responses lie
-# The 5% outside this band represents extreme parameter combinations
-band!(
-    ax2,
-    saveat,
-    lower_05,      # 5th percentile (lower boundary)
-    upper_95,      # 95th percentile (upper boundary)
-    color = (:steelblue, 0.28),
-    label = "90% uncertainty interval"  # Captures main uncertainty region
-)
-
-# Plot inner uncertainty band (50% interquartile range)
-# This shaded region represents the "typical" behavior
-# It shows where the central half of parameter combinations lead
-band!(
-    ax2,
-    saveat,
-    lower_25,      # 25th percentile (lower quartile)
-    upper_75,      # 75th percentile (upper quartile)
-    color = (:orange, 0.35),
-    label = "50% interquartile interval"  # Central tendency region
-)
-
-# Plot ensemble mean trajectory
-# This is the expected value of the response across all parameter samples
-lines!(
-    ax2,
-    saveat,
-    mean_traj,
-    color = :black,
-    linewidth = 3,
-    label = "Mean response",  # E[x(t)]
-)
-
-# Plot ensemble median trajectory  
-# For skewed distributions, median may differ from mean
-# Median is robust to outliers and extreme parameter values
-lines!(
-    ax2,
-    saveat,
-    median_traj,
-    color = :firebrick,
-    linestyle = :dash,
-    linewidth = 2.5,
-    label = "Median response",  # 50th percentile
-)
-
-# Add horizontal reference line at zero displacement
-# This helps visualize oscillation behavior around equilibrium
-hlines!(
-    ax2,
-    [0.0],
-    color = (:gray, 0.5),
-    linestyle = :dot,
-    linewidth = 1.5
-)
-
-# Set y-axis limits to properly display uncertainty bands
-ylims!(ax2, -0.6, 0.6)
-
-# Configure and position the legend
-axislegend(
-    ax2,
-    position = :rt,           # Position: right-top
-    framevisible = true,      # Show legend border
-    backgroundcolor = (:white, 0.85),  # Semi-transparent white background
-    labelsize = 15
-)
-
-# Export combined visualization to file formats for publication/presentation
-# The composite figure contains both sensitivity analysis and uncertainty quantification
-
-# Save as PDF
-save("fractional_uncertainty.pdf", fig)
-
-# Save as PNG
-save("fractional_uncertainty.png", fig)
-
-# Display the figure in the REPL for immediate viewing
-fig
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

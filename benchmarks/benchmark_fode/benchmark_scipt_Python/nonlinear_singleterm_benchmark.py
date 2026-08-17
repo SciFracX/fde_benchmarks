@@ -1,73 +1,206 @@
-from functools import partial
+import time
+import math
 import numpy as np
-import matplotlib.pyplot as plt
-from pycaputo import fracevolve, fracplot
+import pandas as pd
+
 from pycaputo.controller import make_fixed_controller
+from pycaputo.derivatives import CaputoDerivative as D
 from pycaputo.fode import caputo
 from pycaputo.events import StepCompleted
 from pycaputo.stepping import evolve
-import time
-import math
-import pandas as pd
 
-# Nonlinear right-hand side for a single-term Caputo FODE.
-# The forcing is manufactured so that an analytic solution is available.
-def f(t: float, y: np.array) -> np.array:
-    return np.array([
-            (40320 / math.gamma(9 - 0.5) * t ** (8 - 0.5) - 3 * math.gamma(5 + 0.5 / 2)/ math.gamma(5 - 0.5 / 2) * t ** (4 - 0.5 / 2) + 9/4 * math.gamma(0.5 + 1) +(3 / 2 * t ** (0.5 / 2) - t ** 4) ** 3 - y[0] ** (3 / 2))
-    ])
 
-# Fractional derivative order.
+# ------------------------------------------------------------
+# Fractional derivative order
+# ------------------------------------------------------------
 alpha = 0.5
 
-# Closed-form reference solution used for error evaluation.
-# Signature includes y to match generic callback style, though y is unused.
-def analytic(t: float, y: np.array) -> np.array:
-    return np.array([t**8 - 3 * t ** (4 + alpha / 2) + 9 / 4 * t**alpha])
+
+# ------------------------------------------------------------
+# Nonlinear single-term Caputo FODE
+#
+#   D_t^alpha y(t) = f(t, y)
+#
+# with manufactured exact solution
+#
+#   y(t) = t^8 - 3 t^(4 + alpha/2) + 9/4 t^alpha
+#
+# and
+#
+#   y(0) = 0
+# ------------------------------------------------------------
+def f(t: float, y: np.ndarray) -> np.ndarray:
+    return np.array([
+        (
+            40320.0 / math.gamma(9.0 - alpha)
+            * t ** (8.0 - alpha)
+
+            - 3.0
+            * math.gamma(5.0 + alpha / 2.0)
+            / math.gamma(5.0 - alpha / 2.0)
+            * t ** (4.0 - alpha / 2.0)
+
+            + 9.0 / 4.0
+            * math.gamma(alpha + 1.0)
+
+            + (
+                3.0 / 2.0 * t ** (alpha / 2.0)
+                - t ** 4
+            ) ** 3
+
+            - y[0] ** (3.0 / 2.0)
+        )
+    ])
 
 
-# Initial condition y(0).
+# ------------------------------------------------------------
+# Exact solution
+# ------------------------------------------------------------
+def analytic(t):
+    t = np.asarray(t, dtype=float)
+
+    return (
+        t ** 8
+        - 3.0 * t ** (4.0 + alpha / 2.0)
+        + 9.0 / 4.0 * t ** alpha
+    )
+
+
+# ------------------------------------------------------------
+# Initial condition
+# ------------------------------------------------------------
 y0 = np.array([0.0])
 
-# Auxiliary containers (not used later, kept for compatibility/extension).
-ts = []
-ys = []
 
-# Benchmark step sizes: dt = 2^{-i}, i = 3,...,7.
-dts = [2.0**(-i) for i in range(3, 8)]
+# ------------------------------------------------------------
+# Benchmark step sizes
+#
+# dt = 2^{-i}, i = 3,...,8
+# ------------------------------------------------------------
+dts = [2.0 ** (-i) for i in range(3, 9)]
 
-# Output table with one row per dt: execution time and global error norm.
-df = pd.DataFrame({'time': [],
-                   'error': []})
 
-# Sweep all step sizes and collect runtime/accuracy statistics.
+# ------------------------------------------------------------
+# Benchmark results
+# ------------------------------------------------------------
+results = []
+
+
 for dt in dts:
-    # Configure fixed-step PECE solver for Caputo derivative.
+
+
+    # --------------------------------------------------------
+    # Construct PECE solver
+    #
+    # IMPORTANT:
+    #
+    # New pycaputo API:
+    #
+    #   ds=(D(alpha),)
+    #
+    # instead of:
+    #
+    #   derivative_order=alpha
+    #
+    # --------------------------------------------------------
     stepper = caputo.PECE(
-        derivative_order=alpha,
-        control=make_fixed_controller(dt, tstart=0.0, tfinal=1.0),
-        source=partial(f),
+
+        ds=(D(alpha),),
+
+        control=make_fixed_controller(
+            dt,
+            tstart=0.0,
+            tfinal=1.0,
+        ),
+
+        source=f,
+
         y0=(y0,),
+
         corrector_iterations=1,
     )
 
-    # Measure wall-clock execution time for a single full solve.
-    start_time = time.time()
-    # Run the fractional evolution.
-    solution = fracevolve(stepper, dtinit=dt)
-    end_time = time.time()
+
+    # --------------------------------------------------------
+    # Solve
+    #
+    # evolve(stepper) now returns events rather than a
+    # solution object with .t and .y.
+    # --------------------------------------------------------
+    ts = []
+    ys = []
+
+    start_time = time.perf_counter()
+
+    for event in evolve(stepper):
+
+        if isinstance(event, StepCompleted):
+            ts.append(event.t)
+            ys.append(event.y.copy())
+
+    end_time = time.perf_counter()
 
     exec_time = end_time - start_time
 
-    # Compute error against analytic solution on the solver's time grid.
-    ana = analytic(solution.t, None)
-    error = np.linalg.norm(solution.y - ana)
 
-    # Append one benchmark record for the current dt.
-    new_row = pd.DataFrame({'time': [exec_time],
-                            'error': [error]})
-    df = pd.concat([df, new_row], ignore_index=True)
+    # --------------------------------------------------------
+    # Convert numerical solution to numpy arrays
+    # --------------------------------------------------------
+    ts = np.asarray(ts, dtype=float)
+    ys = np.asarray(ys)
 
-# Export benchmark results to CSV.
-# Columns: time (seconds), error (L2 norm over trajectory samples).
-df.to_csv('/Users/quqingyu/SciFracX/paper/benchmarks/data/Singleterm_PYCAPUTO_PECE.csv')
+    # For this scalar FODE:
+    #
+    # ys.shape = (N, 1)
+    #
+    # Convert to:
+    #
+    # y_num.shape = (N,)
+    #
+    y_num = ys[:, 0]
+
+
+    # --------------------------------------------------------
+    # Exact solution
+    # --------------------------------------------------------
+    y_exact = analytic(ts)
+
+
+    # --------------------------------------------------------
+    # Error
+    # --------------------------------------------------------
+
+    # Same L2 norm definition as your original benchmark
+    error_l2 = np.linalg.norm(
+        y_num - y_exact
+    )
+
+    # Also calculate Linfinity for comparison
+    error_linf = np.max(
+        np.abs(y_num - y_exact)
+    )
+
+    results.append({
+        "dt": dt,
+        "N": len(ts),
+        "time": exec_time,
+        "error": error_linf,
+    })
+
+
+# ------------------------------------------------------------
+# Save benchmark results
+# ------------------------------------------------------------
+df = pd.DataFrame(results)
+
+
+output_file = (
+    "/Users/quqingyu/SciFracX/paper/benchmarks/data/"
+    "Singleterm_PYCAPUTO_PECE.csv"
+)
+
+
+df.to_csv(
+    output_file,
+    index=False,
+)

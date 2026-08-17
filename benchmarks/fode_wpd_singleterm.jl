@@ -20,6 +20,8 @@ solvers_all = [
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl BDF", )
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl Trapezoid", )    
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl NewtonGregory", )
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl KernelCompression", )
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl SoE", )
     (; pkg = :MATLAB,                           name = "MATLAB PIEX", )
     (; pkg = :MATLAB,                           name = "MATLAB PECE", )
     (; pkg = :MATLAB,                           name = "MATLAB PIRect", )
@@ -55,6 +57,12 @@ push!(wps_set1, wps("FractionalDiffEq.jl Trapezoid", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_NewtonGregory.csv"))
 push!(wps_set1, wps("FractionalDiffEq.jl NewtonGregory", df[:,1], df[:,2]))
+
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_KernelCompression.csv"))
+push!(wps_set1, wps("FractionalDiffEq.jl KernelCompression", df[:,1], df[:,2]))
+
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Single_FractionalDiffEq_SoE.csv"))
+push!(wps_set1, wps("FractionalDiffEq.jl SoE", df[:,1], df[:,2]))
 
 ##### MATLAB #####
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Linear_Singleterm_MATLAB_PIEX.csv"))
@@ -118,6 +126,12 @@ push!(wps_set2, wps("FractionalDiffEq.jl Trapezoid", df[:,1], df[:,2]))
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Single_FractionalDiffEq_NewtonGregory.csv"))
 push!(wps_set2, wps("FractionalDiffEq.jl NewtonGregory", df[:,1], df[:,2]))
 
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Single_FractionalDiffEq_KernelCompression.csv"))
+push!(wps_set2, wps("FractionalDiffEq.jl KernelCompression", df[:,1], df[:,2]))
+
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Single_FractionalDiffEq_SoE.csv"))
+push!(wps_set2, wps("FractionalDiffEq.jl SoE", df[:,1], df[:,2]))
+
 ##### MATLAB #####
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Singleterm_MATLAB_PIEX.csv"))
 push!(wps_set2, wps("MATLAB PIEX", df[:,1], df[:,2]))
@@ -152,6 +166,8 @@ push!(wps_set2, wps("PyCaputo PECE", df[:,2], df[:,3]))
 
 fig = begin
     LINESTYLES = Dict(:FdeSolvers => :dash, :FractionalDiffEq => :solid, :MATLAB => :dot, :Python => :dashdot)
+    PKG_ORDER = Dict(:FractionalDiffEq => 1, :MATLAB => 2, :FdeSolvers => 3, :Python => 4)
+    legend_order(solvers) = sortperm(eachindex(solvers); by = i -> (get(PKG_ORDER, solvers[i].pkg, typemax(Int)), i))
     ASPECT_RATIO = 0.7
     WIDTH = 1200
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
@@ -165,7 +181,7 @@ fig = begin
         fig = Figure(; size = (WIDTH, HEIGHT))
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_\infty}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
@@ -185,11 +201,13 @@ fig = begin
             push!(scs, sc)
         end
 
-        CairoMakie.xlims!(ax; high=1e0)
-        CairoMakie.ylims!(ax; low=10^(-4.2), high=10^(-1.2))
+        CairoMakie.xlims!(ax; low=10^(-4.3), high=10^(0))
+        CairoMakie.ylims!(ax; low=10^(-4.7), high=10^(-2))
 
-        Legend(fig[2,2], [[l, sc] for (l, sc) in zip(ls, scs)],
-            [solver.name for solver in solvers_all[idxs]], "FODE Solvers";
+        plotted_solvers = solvers_all[idxs]
+        legend_idxs = legend_order(plotted_solvers)
+        Legend(fig[2,2], [[ls[i], scs[i]] for i in legend_idxs],
+            [plotted_solvers[i].name for i in legend_idxs], "FODE Solvers";
             framevisible=true, framewidth = STROKEWIDTH, position = :rb,
             titlesize = 20, labelsize = 15, patchsize = (40.0f0, 25.0f0))
 
@@ -199,7 +217,7 @@ fig = begin
         ############ bottom plot ############
         ax = Axis(fig[3, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_\infty}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
@@ -218,8 +236,8 @@ fig = begin
             push!(scs, sc)
         end
 
-        CairoMakie.xlims!(ax; high=10^(-0.3))
-        CairoMakie.ylims!(ax; low=10^(-5.2), high=10^(-2.0))
+        CairoMakie.xlims!(ax; high=10^(-0.5))
+        CairoMakie.ylims!(ax; low=10^(-5.7), high=10^(-2.1))
 
         #Legend(fig[3,2], [[l, sc] for (l, sc) in zip(ls, scs)],
         #    [solver.name for solver in solvers_all[idxs]], "FODE Solvers";

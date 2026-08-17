@@ -1,7 +1,7 @@
 clc
 
 % Step-size grid for runtime/accuracy benchmarking.
-H=[2^(-3) 2^(-4) 2^(-5)  2^(-6)  2^(-7)];% 2^(-8)];% setting step-size
+H=[2^(-3) 2^(-4) 2^(-5)  2^(-6)  2^(-7) 2^(-8)];% setting step-size
 
 % Fractional order for this single-term nonlinear test problem.
 alpha = 0.5;
@@ -21,11 +21,10 @@ y0 = 0.0;
 % Closed-form exact solution used for error evaluation.
 exa = @(t) t.^8 -3.*t.^(4+alpha/2)+ 9/4*t.^alpha;
 
-% Scalar wrapper required by nlfode_vec interface.
-% k is unused here because this is a single-state equation.
-function y=fun(t,x,k)
-        y=40320/gamma(9-0.5)*t.^(8-0.5) -3*gamma(5+0.5/2)/gamma(5-0.5/2)*t.^(4-0.5/2)+9/4*gamma(0.5+1) +(3/2*t.^(0.5/2)-t.^4).^3 - x(1).^(3/2) ;
-end
+% fhbvm2 uses a mixed mesh: ten graded points cover the first interval of
+% width h, followed by a uniform mesh with stepsize h.
+fhbvm2_graded_span = 1;
+fhbvm2_graded_points = 10;
 
 % Benchmark result matrices:
 % column 1 -> runtime in seconds, column 2 -> solution error norm.
@@ -41,6 +40,7 @@ Bench8=zeros(length(H),2);
 % Sweep over all step sizes.
 for i=1:length(H)
     h=H(i);
+    N=round((T-t0)/h);
 
 % Runtime measurements using timeit for each solver.
 Bench1(i,1) = timeit(@() fde_pi1_ex(alpha,f_fun,t0,T,y0,h));
@@ -66,23 +66,50 @@ Bench8(i,1) = timeit(@() flmm2(alpha,f_fun,J_fun,t0,T,y0,h,[],3));
 exact = exa(t1);
 
 % Error norms against exact solution.
-Bench1(i,2)=norm((y1-exact));
-Bench2(i,2)=norm((y2-exact));
-Bench3(i,2)=norm((y3-exact));
-Bench4(i,2)=norm((y4-exact));
-Bench5(i,2)=norm((y5'-exact));
-Bench6(i,2)=norm((y6-exact));
-Bench7(i,2)=norm((y7-exact));
-Bench8(i,2)=norm((y8-exact));
+Bench1(i,2)=norm((y1-exact), Inf);
+Bench2(i,2)=norm((y2-exact), Inf);
+Bench3(i,2)=norm((y3-exact), Inf);
+Bench4(i,2)=norm((y4-exact), Inf);
+Bench5(i,2)=norm((y5'-exact), Inf);
+Bench6(i,2)=norm((y6-exact), Inf);
+Bench7(i,2)=norm((y7-exact), Inf);
+Bench8(i,2)=norm((y8-exact), Inf);
 end
 %%
 % Export benchmark tables to CSV.
 % Each file stores two columns: [runtime, error].
-writematrix(Bench1,'Singleterm_MATLAB_PIEX.csv')
-writematrix(Bench2,'Singleterm_MATLAB_PECE.csv')
-writematrix(Bench3,'Singleterm_MATLAB_PIRect.csv')
-writematrix(Bench4,'Singleterm_MATLAB_PITrap.csv')
-writematrix(Bench5,'Singleterm_MATLAB_NLFODE_VEC.csv')
-writematrix(Bench6,'Singleterm_MATLAB_Trapzoid.csv')
-writematrix(Bench7,'Singleterm_MATLAB_NewtonGregory.csv')
-writematrix(Bench8,'Singleterm_MATLAB_BDF.csv')
+data_dir = '/Users/quqingyu/SciFracX/paper/benchmarks/data';
+if ~isfolder(data_dir)
+    mkdir(data_dir)
+end
+writetable(array2table(Bench1, 'VariableNames', {'time','error'}), fullfile(data_dir,'Singleterm_MATLAB_PIEX.csv'));
+writetable(array2table(Bench2, 'VariableNames', {'time','error'}), fullfile(data_dir,'Singleterm_MATLAB_PECE.csv'));
+writetable(array2table(Bench3, 'VariableNames', {'time','error'}), fullfile(data_dir,'Singleterm_MATLAB_PIRect.csv'));
+writetable(array2table(Bench4, 'VariableNames', {'time','error'}), fullfile(data_dir,'Singleterm_MATLAB_PITrap.csv'));
+writetable(array2table(Bench5, 'VariableNames', {'time','error'}), fullfile(data_dir,'Singleterm_MATLAB_NLFODE_VEC.csv'));
+writetable(array2table(Bench6, 'VariableNames', {'time','error'}), fullfile(data_dir,'Singleterm_MATLAB_Trapzoid.csv'));
+writetable(array2table(Bench7, 'VariableNames', {'time','error'}), fullfile(data_dir,'Singleterm_MATLAB_NewtonGregory.csv'));
+writetable(array2table(Bench8, 'VariableNames', {'time','error'}), fullfile(data_dir,'Singleterm_MATLAB_BDF.csv'));
+
+% Scalar wrapper required by the nlfode_vec interface.
+% k is unused because the model has only one state.
+function y = fun(t,x,~)
+    y = 40320/gamma(9-0.5)*t.^(8-0.5) -3*gamma(5+0.5/2)/gamma(5-0.5/2)*t.^(4-0.5/2)+9/4*gamma(0.5+1) +(3/2*t.^(0.5/2)-t.^4).^3 - x(1).^(3/2) ;
+end
+
+% Unified problem callback required by fhbvm:
+%   g_fun()       -> fractional order
+%   g_fun(t,y)    -> vectorized right-hand side
+%   g_fun(t,y,1)  -> Jacobian with respect to y
+function value = g_fun(t,y,~)
+    if nargin == 0
+        value = 0.5;
+    elseif nargin == 2
+        value = 40320/gamma(9-0.5)*t.^(8-0.5) -3*gamma(5+0.5/2)/gamma(5-0.5/2)*t.^(4-0.5/2)+9/4*gamma(0.5+1) +(3/2*t.^(0.5/2)-t.^4).^3 - y.^(3/2);
+    elseif nargin == 3
+        value = -3/2*y.^(1/2);
+    else
+        error('g_fun:InvalidInputCount', ...
+            'g_fun expects 0, 2, or 3 input arguments.');
+    end
+end

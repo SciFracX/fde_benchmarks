@@ -20,6 +20,9 @@ solvers_all_nonstiff = [
     (; pkg = :FdeSolvers,                       name = "FdeSolver.jl PECE", )    
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl PECE", )    
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl PITrap", )
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl PIRect", )    
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl KernelCompression", )
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl SoE", )    
     (; pkg = :MATLAB,                           name = "MATLAB PIEX", )
     (; pkg = :MATLAB,                           name = "MATLAB PECE", )
     (; pkg = :MATLAB,                           name = "MATLAB PIRect", )
@@ -38,6 +41,15 @@ push!(wps_set1, wps("FractionalDiffEq.jl PECE", df[:,1], df[:,2]))
 
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_PITrap.csv"))
 push!(wps_set1, wps("FractionalDiffEq.jl PITrap", df[:,1], df[:,2]))
+
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_PIRect.csv"))
+push!(wps_set1, wps("FractionalDiffEq.jl PIRect", df[:,1], df[:,2]))
+
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_KernelCompression.csv"))
+push!(wps_set1, wps("FractionalDiffEq.jl KernelCompression", df[:,1], df[:,2]))
+
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/FractionalDiffEq_SoE.csv"))
+push!(wps_set1, wps("FractionalDiffEq.jl SoE", df[:,1], df[:,2]))
 
 ##### MATLAB #####
 # Load MATLAB non-stiff benchmark outputs.
@@ -78,6 +90,8 @@ solvers_all_stiff = [
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl Trapezoid", )
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl PITrap", )
     (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl PIRect", )
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl KernelCompression", )
+    (; pkg = :FractionalDiffEq,                 name = "FractionalDiffEq.jl SoE", )
     (; pkg = :MATLAB,                           name = "MATLAB BDF", )
     (; pkg = :MATLAB,                           name = "MATLAB NewtonGregory", )
     (; pkg = :MATLAB,                           name = "MATLAB Trapezoid", )
@@ -102,6 +116,12 @@ push!(wps_set2, wps("FractionalDiffEq.jl PITrap", df[:,1], df[:,2]))
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_FractionalDiffEq_PIRect.csv"))
 push!(wps_set2, wps("FractionalDiffEq.jl PIRect", df[:,1], df[:,2]))
 
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_FractionalDiffEq_KernelCompression.csv"))
+push!(wps_set2, wps("FractionalDiffEq.jl KernelCompression", df[:,1], df[:,2]))
+
+df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_FractionalDiffEq_SoE.csv"))
+push!(wps_set2, wps("FractionalDiffEq.jl SoE", df[:,1], df[:,2]))
+
 ##### MATLAB #####
 # Load MATLAB stiff benchmark outputs.
 df = DataFrame(CSV.File("/Users/quqingyu/SciFracX/paper/benchmarks/data/Stiff_MATLAB_BDF.csv"))
@@ -125,6 +145,8 @@ push!(wps_set2, wps("MATLAB PIRect", df[:,1], df[:,2]))
     # Map package families to line styles for visual consistency.
 fig = begin
     LINESTYLES = Dict(:FdeSolvers => :dash, :FractionalDiffEq => :solid, :MATLAB => :dot, :Python => :dashdot)
+    PKG_ORDER = Dict(:FractionalDiffEq => 1, :MATLAB => 2, :FdeSolvers => 3, :Python => 4)
+    legend_order(solvers) = sortperm(eachindex(solvers); by = i -> (get(PKG_ORDER, solvers[i].pkg, typemax(Int)), i))
     ASPECT_RATIO = 0.7
     WIDTH = 1200
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
@@ -143,7 +165,7 @@ fig = begin
         fig = Figure(; size = (WIDTH, HEIGHT))
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_\infty}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
@@ -166,12 +188,14 @@ fig = begin
         end
 
         # Axis ranges tuned for non-stiff benchmark data spread.
-        CairoMakie.xlims!(ax; high=1e1)
-        CairoMakie.ylims!(ax; low=10^(-3.7), high=10^(-1.5))
+        CairoMakie.xlims!(ax; high=1e2)
+        CairoMakie.ylims!(ax; low=10^(-4.3), high=10^(-1.5))
 
         # Right-side legend for non-stiff panel.
-        Legend(fig[1,2], [[l, sc] for (l, sc) in zip(ls, scs)],
-            [solver.name for solver in solvers_all_nonstiff[idxs]], "FODE Solvers";
+        plotted_solvers = solvers_all_nonstiff[idxs]
+        legend_idxs = legend_order(plotted_solvers)
+        Legend(fig[1,2], [[ls[i], scs[i]] for i in legend_idxs],
+            [plotted_solvers[i].name for i in legend_idxs], "FODE Solvers";
             framevisible=true, framewidth = STROKEWIDTH, position = :rb,
             titlesize = 20, labelsize = 16, patchsize = (40.0f0, 20.0f0))
 
@@ -182,7 +206,7 @@ fig = begin
         # Bottom axis: stiff benchmark (same visual grammar, different ranges).
         ax = Axis(fig[3, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{||u-u^\ast||_2}$",
+            xlabel = L"Error: $\mathbf{||u-u^\ast||_\infty}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
@@ -205,11 +229,13 @@ fig = begin
 
         # Axis ranges tuned for stiff benchmark data spread.
         CairoMakie.xlims!(ax; high=10^(-0.5))
-        CairoMakie.ylims!(ax; low=10^(-4.4), high=10^(-2.3))
+        CairoMakie.ylims!(ax; low=10^(-4.4), high=10^(-2.0))
 
         # Right-side legend for stiff panel.
-        Legend(fig[3,2], [[l, sc] for (l, sc) in zip(ls, scs)],
-            [solver.name for solver in solvers_all_stiff[idxs]], "FODE Solvers";
+        plotted_solvers = solvers_all_stiff[idxs]
+        legend_idxs = legend_order(plotted_solvers)
+        Legend(fig[3,2], [[ls[i], scs[i]] for i in legend_idxs],
+            [plotted_solvers[i].name for i in legend_idxs], "FODE Solvers";
             framevisible=true, framewidth = STROKEWIDTH, position = :rb,
             titlesize = 20, labelsize = 16, patchsize = (40.0f0, 20.0f0))
 
